@@ -1,0 +1,35 @@
+#!/bin/sh
+# archascode — thin wrapper around the plugin's bundled CLI (ADR 072).
+#
+# Resolves the bundle relative to this script's REAL location so the same
+# wrapper works in all four contexts the plugin runs in:
+#   1. `claude --plugin-dir <tree>` (read in place from a working directory)
+#   2. the installed plugin cache (~/.claude/plugins/cache/...)
+#   3. an ad-hoc symlink (e.g. a user linking it into ~/bin)
+#   4. direct invocation by path
+# Self-resolution is deliberate: it assumes nothing about the environment
+# (no ${CLAUDE_PLUGIN_ROOT} — that placeholder is substituted in manifests
+# and skill markdown, not guaranteed in a Bash subprocess's environment).
+set -e
+
+SCRIPT="$0"
+# Resolve symlinks one hop at a time so the bundle path is correct even when
+# this script is invoked via a symlink.
+while [ -L "$SCRIPT" ]; do
+  TARGET="$(readlink "$SCRIPT")"
+  case "$TARGET" in
+    /*) SCRIPT="$TARGET" ;;
+    *)  SCRIPT="$(dirname "$SCRIPT")/$TARGET" ;;
+  esac
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+BUNDLE="$SCRIPT_DIR/../dist/cli.mjs"
+
+command -v node >/dev/null 2>&1 || { echo "archascode: Node.js (v20+) is required — see INSTALL.md" >&2; exit 1; }
+
+if [ ! -f "$BUNDLE" ]; then
+  echo "archascode: CLI bundle missing at $BUNDLE — the plugin install is incomplete; reinstall per INSTALL.md" >&2
+  exit 1
+fi
+
+exec node "$BUNDLE" "$@"

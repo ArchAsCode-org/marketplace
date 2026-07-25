@@ -1,0 +1,1121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/spec-schema.json",
+  "title": "Spec2API Specification",
+  "description": "JSON Schema for validating architecture.yml - the unified specification file that serves as the source of truth for domain, application, and API configuration.\n\nThis schema combines domain modeling (entities, value objects, enums) with application concerns (custom ports, use cases) and API configuration. Layer-specific YAML files (domain.yml, application.yml, api.yml) are generated from this spec.\n",
+  "type": "object",
+  "required": [
+    "domain"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version for this specification format (e.g., '1.0'). Used for migration and compatibility checking.",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "default": "1.0"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Project metadata for identification and documentation.",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Project name (kebab-case required, e.g., my-project)",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "description": {
+          "type": "string",
+          "description": "Brief description of the project/domain"
+        },
+        "version": {
+          "type": "string",
+          "description": "Specification version (semantic versioning recommended)"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when spec was generated (for reverse-engineered specs)"
+        },
+        "source": {
+          "type": "string",
+          "description": "Source location or project path (for reverse-engineered specs)"
+        }
+      }
+    },
+    "domain": {
+      "type": "object",
+      "description": "Domain model definition including entities, value objects, and enums. This section follows the same structure as domain.yml.",
+      "additionalProperties": false,
+      "properties": {
+        "entities": {
+          "type": "object",
+          "description": "Domain entities with identity and behavior. Entities are mutable objects that maintain identity through state changes.",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[A-Z][a-zA-Z0-9]*$": {
+              "$ref": "#/definitions/Entity"
+            }
+          }
+        },
+        "value_objects": {
+          "type": "object",
+          "description": "Immutable value objects with validation. Value objects are defined by their attributes rather than identity.",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[A-Z][a-zA-Z0-9]*$": {
+              "$ref": "#/definitions/ValueObject"
+            }
+          }
+        },
+        "enums": {
+          "type": "object",
+          "description": "Domain-specific enumerations with fixed sets of valid values.",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[A-Z][a-zA-Z0-9]*$": {
+              "$ref": "#/definitions/Enum"
+            }
+          }
+        },
+        "errors": {
+          "type": "object",
+          "description": "Domain-specific error types.",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[A-Z][a-zA-Z0-9]*$": {
+              "type": "string"
+            }
+          }
+        },
+        "services": {
+          "type": "object",
+          "description": "Domain services: stateless domain-layer free functions with no I/O, no persistence, and no backend axis. ADR 046.",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[A-Z][a-zA-Z0-9]*$": {
+              "$ref": "#/definitions/DomainService"
+            }
+          }
+        }
+      }
+    },
+    "application": {
+      "type": "object",
+      "description": "Application-layer concerns beyond CRUD. Defines custom ports (interfaces) and use cases. CRUD operations are auto-generated from entities.",
+      "additionalProperties": false,
+      "properties": {
+        "ports": {
+          "type": "object",
+          "description": "Custom port interfaces for non-repository infrastructure dependencies (gateways, external services, etc.).",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[A-Z][a-zA-Z0-9]*$": {
+              "$ref": "#/definitions/ApplicationPort"
+            }
+          }
+        },
+        "use_cases": {
+          "type": "object",
+          "description": "Custom use cases beyond standard CRUD operations.",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[A-Z][a-zA-Z0-9]*$": {
+              "$ref": "#/definitions/ApplicationUseCase"
+            }
+          }
+        }
+      }
+    },
+    "api": {
+      "type": "object",
+      "description": "API configuration settings.",
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "type": "object",
+          "description": "Authentication configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "description": "Authentication type",
+              "enum": ["jwt", "api_key", "oauth2", "none"]
+            },
+            "scheme": {
+              "type": "string",
+              "description": "Authentication scheme (e.g., bearer)"
+            }
+          }
+        },
+        "versioning": {
+          "type": "string",
+          "description": "API versioning strategy",
+          "enum": ["url", "header", "none"]
+        },
+        "base_path": {
+          "type": "string",
+          "description": "Base path for all API endpoints (e.g., '/api/v1')"
+        }
+      }
+    },
+    "adapters": {
+      "type": "object",
+      "description": "Engine-known adapter configuration. Carries persistence config and app-level adapter selections (ADR 024: auth).",
+      "additionalProperties": false,
+      "properties": {
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sqlserver": {
+              "$ref": "#/definitions/SqlServerConfig"
+            }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "description": "App-level auth adapter selection (ADR 024). Declares the spec-level default; per-binding 'app_adapters' overrides per environment. 'api_key' and 'oauth2' are reserved — accepted at parse time, rejected at render time.",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "enum": ["noop", "jwt_bearer", "api_key", "oauth2"],
+              "default": "noop"
+            }
+          }
+        }
+      }
+    },
+    "port_bindings": {
+      "type": "object",
+      "description": "Optional named port bindings (ADR 010, renamed by ADR 026; formerly 'bindings'/'profiles'). Each port binding maps every entity's repo slot to one of its declared adapters at boot via APP_PORT_BINDING. Reserved names: 'memory', 'sqlserver' (auto-emitted).",
+      "additionalProperties": {
+        "$ref": "#/definitions/PortBinding"
+      }
+    },
+    "environments": {
+      "type": "object",
+      "description": "Named deployment-target environments (ADR 010, ADR 017). Each environment selects one port binding and declares two axes: compute (docker/external) and data (ephemeral/protected).",
+      "additionalProperties": {
+        "$ref": "#/definitions/Environment"
+      }
+    },
+    "default_environment": {
+      "type": "string",
+      "description": "Name of the environment used by aac up / /aac-up when no --env flag is passed. Required when 'environments:' is non-empty."
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "DomainService": {
+      "type": "object",
+      "description": "A domain service: a named module of stateless free functions with no I/O, no persistence, and no backend axis. ADR 046 Decision #1.",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "locked": {
+          "type": "boolean",
+          "description": "When true, this body's overlay seeds to spec/locked/ (the non-regenerable layer preserved by `clean`) instead of spec/src/, and documents the intent that it is hand-owned. Core auto-moves the body between spec/src/ and spec/locked/ at render to honor the flag (ADR 063). Lock first, then edit the body in spec/locked/ so your edits are preserved. Defaults to false (ADR 062)."
+        },
+        "functions": {
+          "type": "object",
+          "description": "Named functions declared on this domain service.",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "$ref": "#/definitions/DomainServiceFunction"
+            }
+          }
+        },
+        "value_objects": {
+          "type": "object",
+          "description": "Service-scoped DTOs (domain-layer value objects). These are domain artifacts, NOT port-scoped. ADR 046 Decision #4.",
+          "patternProperties": {
+            "^[A-Z][a-zA-Z0-9]*$": {
+              "$ref": "#/definitions/ValueObject"
+            }
+          }
+        },
+        "depends_on": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Sibling domain services this service calls directly. Must name only other domain.services entries — NOT use cases, ports, or repositories (ADR 046 Decision #6, the layering invariant)."
+        }
+      }
+    },
+    "DomainServiceFunction": {
+      "type": "object",
+      "description": "One function declared on a domain service. Shape mirrors ApplicationPortMethod. ADR 046 Decision #1.",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "input": {
+          "oneOf": [
+            { "type": "string", "description": "Input type name or 'void'" },
+            { "$ref": "#/definitions/InlineDTO" }
+          ]
+        },
+        "output": {
+          "oneOf": [
+            { "type": "string", "description": "Output type name or 'void'" },
+            { "$ref": "#/definitions/InlineDTO" }
+          ]
+        },
+        "raises": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Exceptions this function may raise"
+        }
+      }
+    },
+    "Entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attributes"
+      ],
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "owner_field": {
+          "type": "string",
+          "description": "Attribute name used for RLS/multi-tenant data isolation."
+        },
+        "readonly": {
+          "type": "boolean",
+          "description": "Mark entity as read-only. Only find_all and find_by_id operations are generated.",
+          "default": false
+        },
+        "sql": {
+          "oneOf": [
+            { "type": "string", "description": "Inline SQL query or path to .sql file" },
+            {
+              "type": "object",
+              "description": "Provider-specific SQL files",
+              "additionalProperties": { "type": "string" }
+            }
+          ],
+          "description": "Custom SQL for readonly entities."
+        },
+        "filters": {
+          "type": "object",
+          "description": "Optional filter parameters for find_all.",
+          "additionalProperties": { "type": "string" }
+        },
+        "attributes": {
+          "$ref": "#/definitions/AttributeMap"
+        },
+        "relationships": {
+          "$ref": "#/definitions/RelationshipMap"
+        },
+        "methods": {
+          "$ref": "#/definitions/MethodMap"
+        },
+        "invariants": {
+          "$ref": "#/definitions/InvariantMap"
+        },
+        "derived_attributes": {
+          "$ref": "#/definitions/DerivedAttributeMap",
+          "description": "ADR 074 — computed read-only projections: a pure ADR 068-dialect expression over the entity's own stored attributes, rendered as a @property on <E>State and surfaced in <E>DTO only (never in inputs, SQL, or snapshots)."
+        },
+        "adapters": {
+          "$ref": "#/definitions/AdapterMap",
+          "description": "Named adapter declarations for this entity-backed repository port. The default in-memory CRUD adapter is implicit and not listed; entries here declare additional custom adapters (e.g. sqlserver) that an agent will implement."
+        },
+        "repo_port_extensions": {
+          "$ref": "#/definitions/RepoPortExtensions",
+          "description": "Non-CRUD methods to merge into this entity's derived repository Protocol. Presence ejects the auto-generated in-memory adapter (a scaffold is seeded to spec/src/ on first render)."
+        },
+        "api": {
+          "$ref": "#/definitions/EntityAPIConfig",
+          "description": "ADR 033 — optional API sub-block. Level 2 ships auth; the sub-block hosts per-op keys (level 3) and future API-only knobs."
+        }
+      }
+    },
+    "EntityAPIConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "ADR 033 #4 — entity.api sub-block. Sets the auth posture for every endpoint the entity induces.",
+      "properties": {
+        "auth": {
+          "type": "string",
+          "enum": ["required", "anonymous"],
+          "description": "Auth posture for this entity's derived endpoints."
+        },
+        "disabled": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "ADR 059 — sparse opt-out list of route op keys to suppress (CRUD bare names + rel-<relName>). API-layer-only: the use case/port/adapter still generate. Validated against the induced set."
+        }
+      }
+    },
+    "ValueObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "description": "Base type for simple value objects"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Regex pattern for string-based value objects"
+        },
+        "values": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Valid values for enum-type value objects"
+        },
+        "validation": {
+          "$ref": "#/definitions/Validation"
+        },
+        "attributes": {
+          "$ref": "#/definitions/AttributeMap",
+          "description": "Attributes for composite value objects"
+        }
+      }
+    },
+    "Enum": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "values": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of valid enum values"
+        }
+      }
+    },
+    "AttributeMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-zA-Z][a-zA-Z0-9_]*$": {
+          "$ref": "#/definitions/Attribute"
+        }
+      }
+    },
+    "DerivedAttributeMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-zA-Z][a-zA-Z0-9_]*$": {
+          "$ref": "#/definitions/DerivedAttribute"
+        }
+      }
+    },
+    "DerivedAttribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "expression"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Scalar type (primitive, enum, or value object). list[X] is rejected (ADR 074 D1)."
+        },
+        "expression": {
+          "type": "string",
+          "description": "ADR 068-dialect Python expression over the entity's own stored attributes."
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "Attribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Data type (primitive, value object, or entity reference)"
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "immutable": {
+          "type": "boolean",
+          "default": false
+        },
+        "identity": {
+          "type": "boolean",
+          "default": false
+        },
+        "generated": {
+          "type": "boolean",
+          "default": false
+        },
+        "unique": {
+          "type": "boolean",
+          "default": false
+        },
+        "default": {
+          "description": "Default value for attribute"
+        },
+        "description": {
+          "type": "string"
+        },
+        "validation": {
+          "$ref": "#/definitions/Validation"
+        },
+        "enum": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Inline enum values"
+        },
+        "examples": {
+          "type": "array",
+          "description": "Example values for mock data"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Regex pattern for validation"
+        },
+        "faker": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "object" }
+          ],
+          "description": "Faker.js hint for mock data"
+        }
+      }
+    },
+    "Validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "precision": {
+          "type": "integer"
+        },
+        "scale": {
+          "type": "integer"
+        }
+      }
+    },
+    "RelationshipMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "$ref": "#/definitions/Relationship"
+        }
+      }
+    },
+    "Relationship": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cardinality"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Target entity type (alias: 'entity')"
+        },
+        "entity": {
+          "type": "string",
+          "description": "Target entity type (alias for 'type')"
+        },
+        "cardinality": {
+          "type": "string",
+          "enum": ["one-to-one", "one-to-many", "many-to-one", "many-to-many"]
+        },
+        "on_delete": {
+          "type": "string",
+          "enum": ["cascade", "restrict", "set_null"]
+        },
+        "composition": {
+          "type": "boolean",
+          "default": false
+        },
+        "description": {
+          "type": "string",
+          "description": "Documentation for this relationship"
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether the relationship target is required (defaults to true)",
+          "default": true
+        }
+      },
+      "oneOf": [
+        { "required": ["type"] },
+        { "required": ["entity"] }
+      ]
+    },
+    "MethodMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "$ref": "#/definitions/Method"
+        }
+      }
+    },
+    "Method": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "mutable": {
+          "type": "boolean",
+          "default": false,
+          "description": "ADR 039 — opt-in mutation. Omitted or false ⇒ non-mutable (query) method: declared params only, returns the declared `returns` (or None). true ⇒ the method gains an injected `*, now: datetime` clock param and returns its entity (a declared `returns` is ignored)."
+        },
+        "parameters": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "oneOf": [
+                { "type": "string" },
+                { "$ref": "#/definitions/MethodParameter" }
+              ]
+            }
+          }
+        },
+        "returns": {
+          "type": "string"
+        },
+        "workflow": {
+          "type": "array",
+          "description": "Domain-level implementation steps for this method",
+          "items": { "type": "string" }
+        },
+        "depends_on_attributes": {
+          "type": "array",
+          "description": "Entity attribute names whose rendered types are included in the hand-off contract hash (ADR 039 #8).",
+          "items": { "type": "string" }
+        },
+        "use_case": {
+          "oneOf": [
+            { "type": "boolean", "description": "true to expose as API endpoint with defaults" },
+            { "$ref": "#/definitions/MethodUseCase" }
+          ],
+          "description": "Use case config for exposing this method as an API endpoint"
+        },
+        "static": {
+          "type": "boolean",
+          "default": false,
+          "description": "ADR 060 — a static factory method (classmethod) that constructs the entity's aggregate (root + owned children). Pure: composes owned entities' create(); returns a flat persist-ordered bundle. Mutually exclusive with mutable."
+        },
+        "aggregate": {
+          "type": "boolean",
+          "default": false,
+          "description": "ADR 073 — an aggregate instance method on the root: operates over the loaded owned children (ADR 060 owned set) and returns the flat changed bundle; the promoted UC is the generated multi-repo load/mutate/persist orchestration. Mutually exclusive with static and with explicit mutable: true."
+        },
+        "locked": {
+          "type": "boolean",
+          "description": "When true, this body's overlay seeds to spec/locked/ (the non-regenerable layer preserved by `clean`) instead of spec/src/, and documents the intent that it is hand-owned. Core auto-moves the body between spec/src/ and spec/locked/ at render to honor the flag (ADR 063). Lock first, then edit the body in spec/locked/ so your edits are preserved. Defaults to false (ADR 062)."
+        }
+      }
+    },
+    "MethodParameter": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "required": { "type": "boolean" },
+        "default": {},
+        "description": { "type": "string" }
+      }
+    },
+    "MethodUseCase": {
+      "type": "object",
+      "description": "Use case configuration for exposing an entity method as an API endpoint.",
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "type": "string",
+          "enum": ["required", "anonymous"],
+          "default": "required"
+        },
+        "input": {
+          "oneOf": [
+            { "type": "string", "description": "Input type name or 'void'" },
+            { "$ref": "#/definitions/InlineDTO" }
+          ]
+        },
+        "output": {
+          "oneOf": [
+            { "type": "string", "description": "Output type name or 'void'" },
+            { "$ref": "#/definitions/InlineDTO" }
+          ]
+        },
+        "ports": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/PortDependency" }
+        },
+        "workflow": {
+          "type": "array",
+          "description": "Use-case orchestration steps",
+          "items": { "type": "string" }
+        },
+        "preconditions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Precondition" }
+        },
+        "postconditions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "emits": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "InvariantMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "$ref": "#/definitions/Invariant"
+        }
+      }
+    },
+    "Invariant": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["condition"],
+          "properties": {
+            "condition": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "ApplicationPort": {
+      "type": "object",
+      "description": "Custom port definition for application section. Dict-keyed by port name.",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "What infrastructure concern this port abstracts"
+        },
+        "methods": {
+          "type": "object",
+          "description": "Methods defined by this port interface",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "$ref": "#/definitions/ApplicationPortMethod"
+            }
+          }
+        },
+        "value_objects": {
+          "type": "object",
+          "description": "Value objects scoped to this port (used as method input/output types).",
+          "patternProperties": {
+            "^[A-Z][a-zA-Z0-9]*$": {
+              "$ref": "#/definitions/PortValueObject"
+            }
+          }
+        },
+        "adapters": {
+          "$ref": "#/definitions/AdapterMap",
+          "description": "Named adapter declarations for this port. When omitted the engine emits a single implicit custom adapter; entries here declare additional named adapters (e.g. memory/sqlserver) that an agent will implement."
+        }
+      }
+    },
+    "PortValueObject": {
+      "type": "object",
+      "description": "Port-scoped value object. Has named fields like an InlineDTO plus a description.",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "fields": {
+          "$ref": "#/definitions/InlineDTO"
+        }
+      }
+    },
+    "ApplicationPortMethod": {
+      "type": "object",
+      "description": "Port method definition. Dict-keyed by method name.",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "input": {
+          "oneOf": [
+            { "type": "string", "description": "Input type name or 'void'" },
+            { "$ref": "#/definitions/InlineDTO" }
+          ]
+        },
+        "output": {
+          "oneOf": [
+            { "type": "string", "description": "Output type name or 'void'" },
+            { "$ref": "#/definitions/InlineDTO" }
+          ]
+        },
+        "raises": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Exceptions this method may raise"
+        }
+      }
+    },
+    "ApplicationUseCase": {
+      "type": "object",
+      "description": "Custom use case definition. Dict-keyed by use case name; all fields are optional.",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "What the use case does and why it exists"
+        },
+        "auth": {
+          "type": "string",
+          "description": "Authentication requirement",
+          "enum": ["required", "anonymous"],
+          "default": "required"
+        },
+        "input": {
+          "oneOf": [
+            { "type": "string", "description": "Input type name or 'void'" },
+            { "$ref": "#/definitions/InlineDTO" }
+          ]
+        },
+        "output": {
+          "oneOf": [
+            { "type": "string", "description": "Output type name or 'void'" },
+            { "$ref": "#/definitions/InlineDTO" }
+          ]
+        },
+        "uses": {
+          "$ref": "#/definitions/UseCaseUses",
+          "description": "Per ADR 004: dependency declarations — uses.repositories (entity names) + uses.ports (PortDependency list). Replaces the legacy top-level ports field."
+        },
+        "workflow": {
+          "type": "array",
+          "description": "Ordered steps describing the use case execution flow",
+          "items": { "type": "string" }
+        },
+        "preconditions": {
+          "type": "array",
+          "description": "Conditions that must be satisfied before execution",
+          "items": {
+            "$ref": "#/definitions/Precondition"
+          }
+        },
+        "postconditions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "emits": {
+          "type": "array",
+          "description": "Domain events emitted by this use case",
+          "items": { "type": "string" }
+        },
+        "errors": {
+          "type": "array",
+          "description": "Domain errors this use case may raise (must be declared in domain.errors).",
+          "items": { "type": "string" }
+        },
+        "update_mode": {
+          "type": "string",
+          "enum": ["replace", "partial"]
+        },
+        "updatable_fields": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "endpoint": {
+          "type": "boolean",
+          "description": "ADR 041 #1 — expose as HTTP endpoint (default true); false suppresses the route."
+        },
+        "group": {
+          "type": "string",
+          "description": "ADR 041 #2 — mounting group: absent = 'Application' synthetic router; named = that entity's router."
+        },
+        "http": {
+          "type": "object",
+          "description": "ADR 041 #3 — explicit verb + path suffix. Absent = POST /<uc-kebab>.",
+          "additionalProperties": false,
+          "required": ["method", "path"],
+          "properties": {
+            "method": {
+              "type": "string",
+              "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+              "description": "HTTP verb"
+            },
+            "path": {
+              "type": "string",
+              "description": "'/'-leading static path suffix appended to the group prefix. No {param} segments."
+            }
+          }
+        },
+        "locked": {
+          "type": "boolean",
+          "description": "When true, this body's overlay seeds to spec/locked/ (the non-regenerable layer preserved by `clean`) instead of spec/src/, and documents the intent that it is hand-owned. Core auto-moves the body between spec/src/ and spec/locked/ at render to honor the flag (ADR 063). Lock first, then edit the body in spec/locked/ so your edits are preserved. Defaults to false (ADR 062)."
+        }
+      }
+    },
+    "InlineDTO": {
+      "type": "object",
+      "description": "Inline DTO definition",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-zA-Z][a-zA-Z0-9_]*$": {
+          "$ref": "#/definitions/DTOAttribute"
+        }
+      }
+    },
+    "DTOAttribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "nullable": {
+          "type": "boolean",
+          "default": false
+        },
+        "description": {
+          "type": "string"
+        },
+        "default": {
+          "description": "Default value"
+        }
+      }
+    },
+    "PortDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["port", "mode"],
+      "properties": {
+        "port": {
+          "type": "string",
+          "description": "Port interface name"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["read", "write", "read_write"]
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "Precondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["condition", "raises"],
+      "properties": {
+        "condition": {
+          "type": "string"
+        },
+        "raises": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "AdapterMap": {
+      "type": "object",
+      "description": "Map of adapter id -> adapter declaration. v1: every value is an empty mapping ({}); the id is the directory name under adapter/persistence/ (entity case) or adapter/<port>/ (declared-port case).",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][a-z0-9_-]*$": {
+          "$ref": "#/definitions/AdapterDeclaration"
+        }
+      }
+    },
+    "AdapterDeclaration": {
+      "type": "object",
+      "description": "v1: bare-identifier adapter — entry is an empty mapping. Reserved for future per-adapter fields (intent, hints, env-var bindings).",
+      "additionalProperties": false,
+      "properties": {
+        "reads": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Entity stores a memory custom-port adapter receives as MemoryStore[<Entity>State] constructor arguments, in declared order (ADR 045 Decision #1). Meaningful only on a port's memory adapter; planning hard-fails if present elsewhere."
+        },
+        "eject": {
+          "type": "boolean",
+          "description": "When true, this adapter's repository body is handed off to the agent as a contracted spec/src/ overlay (entity_adapter hand-off). Ejects exactly this adapter; siblings stay engine-generated. Defaults to false (ADR 051)."
+        },
+        "locked": {
+          "type": "boolean",
+          "description": "When true, this body's overlay seeds to spec/locked/ (the non-regenerable layer preserved by `clean`) instead of spec/src/, and documents the intent that it is hand-owned. Core auto-moves the body between spec/src/ and spec/locked/ at render to honor the flag (ADR 063). Lock first, then edit the body in spec/locked/ so your edits are preserved. Defaults to false (ADR 062)."
+        }
+      }
+    },
+    "RepoPortExtensions": {
+      "type": "object",
+      "description": "Extra non-CRUD methods to merge into an entity's derived repository Protocol. Presence triggers eject of the auto-generated in-memory adapter.",
+      "additionalProperties": false,
+      "required": ["methods"],
+      "properties": {
+        "methods": {
+          "type": "object",
+          "description": "Non-CRUD methods to add to the derived repository Protocol. Method names must not collide with reserved CRUD method names (find_all, find_by_id, save, delete, ...).",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "$ref": "#/definitions/RepoPortExtensionMethod"
+            }
+          }
+        }
+      }
+    },
+    "SqlServerConfig": {
+      "type": "object",
+      "description": "SQL Server persistence adapter configuration. env required keys: host, database, username, password (port optional). Schema-management policy is derived from the environment-level data axis (see environments.<env>.data; ADR 017).",
+      "additionalProperties": false,
+      "required": ["env"],
+      "properties": {
+        "env": {
+          "type": "object",
+          "description": "Map of config-key to env-var spec. Values are 'VAR_NAME' or 'VAR_NAME:default'. Required keys: host, database, username, password. Optional: port (defaults to DB_PORT:1433).",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "type": "string",
+              "pattern": "^[A-Z_][A-Z0-9_]*(:[^\\s].*)?$"
+            }
+          }
+        }
+      }
+    },
+    "RepoPortExtensionMethod": {
+      "type": "object",
+      "description": "One non-CRUD method on an entity repository port. Shape mirrors ApplicationPortMethod.",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "input": {
+          "oneOf": [
+            { "type": "string", "description": "Input type name or 'void'" },
+            { "$ref": "#/definitions/InlineDTO" }
+          ]
+        },
+        "output": {
+          "oneOf": [
+            { "type": "string", "description": "Output type name or 'void'" },
+            { "$ref": "#/definitions/InlineDTO" }
+          ]
+        },
+        "raises": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "UseCaseUses": {
+      "type": "object",
+      "description": "Per ADR 004: dependency declarations for a custom use case — repositories (by entity name) and ports (PortDependency list).",
+      "additionalProperties": false,
+      "properties": {
+        "repositories": {
+          "type": "array",
+          "description": "Entity names this use case depends on; each becomes a <Entity>Repository constructor parameter on the generated shell.",
+          "items": { "type": "string" }
+        },
+        "ports": {
+          "type": "array",
+          "description": "Custom-port dependencies (same shape as the legacy flat ports field).",
+          "items": { "$ref": "#/definitions/PortDependency" }
+        }
+      }
+    },
+    "PortBinding": {
+      "type": "object",
+      "description": "Named port binding (ADR 010, renamed by ADR 026; formerly 'Binding'/'profile'). `default` is the adapter every entity binds to unless overridden; `overrides` pins specific entities to a different declared adapter. `app_adapters` (ADR 024) selects app-level adapters per port binding.",
+      "additionalProperties": false,
+      "required": ["default"],
+      "properties": {
+        "default": {
+          "type": "string",
+          "description": "Adapter id every entity binds to by default. Must be an adapter declared on at least one entity (or 'memory'). Entities that did not declare it fall back to 'memory'."
+        },
+        "overrides": {
+          "type": "object",
+          "description": "Per-entity adapter override. Keys are entity names; values are adapter ids the entity declared on its own adapters: block (or 'memory').",
+          "additionalProperties": { "type": "string" }
+        },
+        "app_adapters": {
+          "type": "object",
+          "description": "Per-port-binding app-level adapter selections (ADR 024). v1 carries 'auth'. When unset, top-level 'adapters.auth.id' is used; if neither is set, 'noop' is the implicit default.",
+          "additionalProperties": false,
+          "properties": {
+            "auth": {
+              "type": "string",
+              "enum": ["noop", "jwt_bearer", "api_key", "oauth2"],
+              "description": "App-level auth adapter id for this port binding."
+            }
+          }
+        }
+      }
+    },
+    "Environment": {
+      "type": "object",
+      "description": "Named deployment-target environment (ADR 010, ADR 017). References a port binding and declares two axes: compute (who owns the database lifecycle) and data (how protected the data is).",
+      "additionalProperties": false,
+      "required": ["port_binding"],
+      "properties": {
+        "port_binding": {
+          "type": "string",
+          "description": "Name of the port binding this environment uses. Must reference a known port-binding name (auto names 'memory'/'sqlserver' or a user-declared port binding)."
+        },
+        "compute": {
+          "type": "string",
+          "enum": ["docker", "external"],
+          "description": "Who owns the persistence infrastructure lifecycle. 'docker' means `aac up` runs docker compose; 'external' means the database is brought into existence by something else. Forbidden on memory-only port bindings; required on non-memory port bindings."
+        },
+        "data": {
+          "type": "string",
+          "enum": ["ephemeral", "protected"],
+          "description": "Risk profile of the data. 'ephemeral' (wipeable; snapshot/seed endpoints work) or 'protected' (load-bearing; snapshot endpoints return 403). Defaults to 'ephemeral' for memory and compute: docker; required explicitly for compute: external."
+        }
+      }
+    }
+  }
+}

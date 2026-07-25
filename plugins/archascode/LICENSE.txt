@@ -1,0 +1,8 @@
+archascode — Proprietary Software Notice
+
+Copyright (c) 2026 Steve Fox. All rights reserved.
+
+This software (the archascode toolchain: skills, CLI, and editor
+extension) is proprietary and is provided solely for invite-only
+evaluation. Redistribution, in whole or in part, is not permitted.
+Provided "as is", without warranty of any kind.

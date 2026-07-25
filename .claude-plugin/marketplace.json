@@ -1,0 +1,11 @@
+{
+  "name": "archascode",
+  "owner": { "name": "Steve Fox" },
+  "plugins": [
+    {
+      "name": "archascode",
+      "source": "./plugins/archascode",
+      "description": "archascode toolchain — aac-* skills + the archascode CLI. Proprietary; invite-only evaluation — see LICENSE.txt."
+    }
+  ]
+}
