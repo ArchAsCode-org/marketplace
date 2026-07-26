@@ -15,10 +15,6 @@ is covered by the bundled `LICENSE.txt`.
   in-memory first run
 - **A provisioned archascode account** — you'll have received credentials
   separately
-- **GitHub access to `ArchAsCode-org/marketplace`** (you've been added as
-  a collaborator), with git authentication working on your machine —
-  either the `gh` CLI (`gh auth login`) or SSH keys, so cloning private
-  repositories works
 
 ## 2. Install the Claude Code plugin
 
