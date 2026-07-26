@@ -2,12 +2,8 @@
 
 Welcome to the archascode invite-only evaluation. archascode ships as a
 Claude Code plugin (skills + CLI) and a VS Code/Cursor extension, both
-distributed from the `ArchAsCode-org/marketplace` GitHub repository.
-
-The client software is licensed under Apache 2.0 (see the bundled
-`LICENSE.txt` and `NOTICE`). Use of the hosted archascode service is
-governed separately by the Terms of Service at
-<https://archascode.com/terms> *(placeholder — not yet published)*.
+distributed from the `ArchAsCode-org/marketplace` GitHub repository. Use
+is covered by the bundled `LICENSE.txt`.
 
 ## 1. Prerequisites
 
@@ -39,8 +35,8 @@ From any Claude Code session, run these two commands **one at a time**:
 Choose **user scope** ("Install for you") when prompted. Then restart the
 Claude Code session — plugin skills and the CLI load at session start.
 
-That installs the eight `aac-*` skills and puts the `archascode` CLI on
-the Claude Code Bash tool's PATH.
+That installs the nine skills (the eight `aac-*` skills plus `login`) and
+puts the `archascode` CLI on the Claude Code Bash tool's PATH.
 
 ## 3. Install the editor extension
 
@@ -56,12 +52,21 @@ Reload the editor window afterwards.
 
 ## 4. Log in
 
-Run `archascode login` **in a real terminal only** — the CLI requires a
-TTY for its prompts, so it cannot run inside a Claude Code session.
+From your Claude Code session, ask to log in:
 
-The plugin's `bin/` directory is on the *Claude Code Bash tool's* PATH,
-not your shell PATH. Put the CLI on your shell PATH with a one-time
-symlink — the target path is stable across plugin updates:
+```
+/archascode:login
+```
+
+(or just tell Claude Code "log me in to archascode"). This opens your
+system browser at the sign-in page — enter the credentials you received.
+On first login you'll be asked to set a new password there, in the
+browser.
+
+**Optional: put the CLI on your shell PATH.** The plugin's `bin/`
+directory is on the *Claude Code Bash tool's* PATH, not your shell PATH.
+If you'd like to run `archascode` commands directly from a terminal too,
+link it once — the target path is stable across plugin updates:
 
 ```sh
 ln -s ~/.claude/plugins/marketplaces/archascode/plugins/archascode/bin/archascode ~/.local/bin/archascode
@@ -70,14 +75,8 @@ ln -s ~/.claude/plugins/marketplaces/archascode/plugins/archascode/bin/archascod
 If `~/.local/bin` isn't on your PATH, either link into a directory that
 is, or create `~/.local/bin` and add it to your PATH.
 
-Then, from your terminal:
-
-```sh
-archascode login
-```
-
-Enter the credentials you received. On first login you'll be asked to set
-a new password.
+On SSH/headless machines, the browser flow can't reach your machine —
+run `archascode login --password` in a real terminal instead.
 
 ## 5. First run
 

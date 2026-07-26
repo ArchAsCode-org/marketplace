@@ -136,8 +136,11 @@ worded so the user can override by hand:
   out of scope on your own judgment.
 - **Exclusive-arc / "belongs to exactly one of" relationships** — model
   as N independent optional `many-to-one` relationships plus an entity
-  invariant requiring exactly one to be set (closest fit to the PRD's
-  intent; never silently drop the exclusivity constraint).
+  invariant requiring exactly one to be set — count non-nulls, so the
+  check holds in every fill state:
+  `(a_id is not None) + (b_id is not None) + (c_id is not None) == 1`
+  (closest fit to the PRD's intent; never silently drop the
+  exclusivity constraint).
 - **`on_delete` under a "no hard delete" PRD constraint** — `restrict`
   on every relationship into the affected entity. Deletion itself being
   out of scope means no path should ever cascade; don't introduce a
@@ -245,7 +248,11 @@ Step 5 catches anything this summary gets wrong):
   expressions over the entity's own attribute names (`quantity > 0`,
   `0 <= probability <= 100`). Comprehensions are supported;
   unresolvable expressions fail the render loudly (ADR 068), so keep
-  them simple and let the loop catch mistakes.
+  them simple and let the loop catch mistakes. Compare enum-typed
+  fields by bare value equality — `status == 'won'` — enum members
+  compare equal to their value strings (ADR 077). Write "exactly one
+  of" checks by counting non-nulls:
+  `(a_id is not None) + (b_id is not None) == 1`.
 - **Methods**: `entity.methods.<verb>: {description, parameters?,
   returns?, use_case?}`. A parameter is a bare type string (required)
   or `{type, required?, default?, description?}` for optional/defaulted

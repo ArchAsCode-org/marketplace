@@ -1,6 +1,5 @@
 {
   "name": "archascode",
-  "version": "0.1.0",
-  "description": "archascode toolchain — aac-* skills + the archascode CLI. Apache-2.0; requires an archascode account.",
-  "license": "Apache-2.0"
+  "version": "0.1.1",
+  "description": "archascode toolchain — aac-* skills + the archascode CLI. Proprietary; invite-only evaluation — see LICENSE.txt."
 }

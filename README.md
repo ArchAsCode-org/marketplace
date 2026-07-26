@@ -12,7 +12,7 @@ copyright and trademark details.
 
 Use of the hosted archascode service (`api.archascode.com`) is governed
 separately by the archascode Terms of Service:
-<https://archascode.com/terms> *(placeholder — not yet published)*.
+<https://archascode.com/terms>.
 
 Running archascode requires a provisioned archascode account; the
 evaluation is currently invite-only.

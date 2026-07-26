@@ -321,7 +321,7 @@
         },
         "derived_attributes": {
           "$ref": "#/definitions/DerivedAttributeMap",
-          "description": "ADR 074 — computed read-only projections: a pure ADR 068-dialect expression over the entity's own stored attributes, rendered as a @property on <E>State and surfaced in <E>DTO only (never in inputs, SQL, or snapshots)."
+          "description": "ADR 074 — computed read-only projections: a pure ADR 068-dialect expression over the entity's own stored attributes or sibling derived attributes (same-entity, acyclic — ADR 074 A1), rendered as a @property on <E>State and surfaced in <E>DTO only (never in inputs, SQL, or snapshots)."
         },
         "adapters": {
           "$ref": "#/definitions/AdapterMap",
@@ -426,7 +426,7 @@
         },
         "expression": {
           "type": "string",
-          "description": "ADR 068-dialect Python expression over the entity's own stored attributes."
+          "description": "ADR 068-dialect Python expression over the entity's own stored attributes or sibling derived attributes (same-entity, acyclic — ADR 074 A1)."
         },
         "description": {
           "type": "string"

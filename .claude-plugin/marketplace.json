@@ -5,7 +5,7 @@
     {
       "name": "archascode",
       "source": "./plugins/archascode",
-      "description": "archascode toolchain — aac-* skills + the archascode CLI. Apache-2.0; requires an archascode account."
+      "description": "archascode toolchain — aac-* skills + the archascode CLI. Proprietary; invite-only evaluation — see LICENSE.txt."
     }
   ]
 }

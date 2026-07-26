@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 // src/cli.ts
+import { spawn as spawn2 } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { access as access3 } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
@@ -469,6 +470,10 @@ var HOSTED_CLOUD_URL = "https://api.archascode.com";
 var COGNITO_REGION = "us-east-1";
 var COGNITO_CLIENT_ID = "5bll6vjhs6ivlqlik4kllt1i5j";
 var COGNITO_PASSWORD_REQUIREMENTS = "at least 8 characters, including an uppercase letter, a lowercase letter, a number, and a symbol";
+var COGNITO_HOSTED_UI_DOMAIN = "";
+function cognitoHostedUiDomain(env = process.env) {
+  return env.ARCHASCODE_COGNITO_DOMAIN ?? COGNITO_HOSTED_UI_DOMAIN;
+}
 function cognitoClientId(env = process.env) {
   return env.ARCHASCODE_COGNITO_CLIENT_ID ?? COGNITO_CLIENT_ID;
 }
@@ -719,6 +724,258 @@ function isNotFound6(err) {
 import { chmod, mkdir as mkdir7, readFile as readFile6, rm as rm4, writeFile as writeFile5 } from "node:fs/promises";
 import * as os from "node:os";
 import * as path9 from "node:path";
+
+// ../../../packages/core/src/oauth/callbackServer.ts
+import { createServer } from "node:http";
+
+// ../../../packages/core/src/oauth/errors.ts
+var AuthCancelledError = class extends Error {
+  kind = "cancelled";
+  constructor(message = "Sign-in cancelled") {
+    super(message);
+    this.name = "AuthCancelledError";
+  }
+};
+var AuthTimeoutError = class extends Error {
+  kind = "timeout";
+  constructor(message = "Sign-in timed out") {
+    super(message);
+    this.name = "AuthTimeoutError";
+  }
+};
+var AuthIdpError = class extends Error {
+  constructor(message, errorCode) {
+    super(message);
+    this.errorCode = errorCode;
+    this.name = "AuthIdpError";
+  }
+  kind = "idp";
+};
+var AuthStateMismatchError = class extends Error {
+  kind = "stateMismatch";
+  constructor() {
+    super("OAuth state parameter mismatch (possible CSRF)");
+    this.name = "AuthStateMismatchError";
+  }
+};
+
+// ../../../packages/core/src/oauth/callbackServer.ts
+var DEFAULT_SUCCESS_MESSAGE = "You can close this tab.";
+function successPage(successMessage) {
+  return `<!doctype html><meta charset="utf-8"><title>Signed in</title>
+<h2>Signed in</h2>
+<p>${successMessage}</p>
+<script>window.close()</script>`;
+}
+var CALLBACK_PORT = 53682;
+var REDIRECT_URI = `http://127.0.0.1:${CALLBACK_PORT}/callback`;
+function startCallbackServer(opts = {}) {
+  const port = opts.port ?? CALLBACK_PORT;
+  const successMessage = opts.successMessage ?? DEFAULT_SUCCESS_MESSAGE;
+  return new Promise((resolve2, reject) => {
+    let pendingResolve = null;
+    let pendingReject = null;
+    let timer = null;
+    let closed = false;
+    const server = createServer((req, res) => {
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      if (req.method !== "GET" || url.pathname !== "/callback") {
+        res.statusCode = 404;
+        res.end();
+        return;
+      }
+      const params = url.searchParams;
+      const errCode = params.get("error");
+      if (errCode) {
+        const desc = params.get("error_description") ?? errCode;
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end(`Sign-in failed: ${desc}`);
+        pendingReject?.(new AuthIdpError(`IdP returned error: ${desc}`, errCode));
+        pendingResolve = null;
+        pendingReject = null;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        return;
+      }
+      const code = params.get("code");
+      const state = params.get("state");
+      if (!code || !state) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end("Sign-in failed: missing code or state");
+        pendingReject?.(new AuthIdpError("Callback missing code or state"));
+        pendingResolve = null;
+        pendingReject = null;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.end(successPage(successMessage));
+      pendingResolve?.({ code, state });
+      pendingResolve = null;
+      pendingReject = null;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    });
+    server.on("error", (err) => {
+      if (!closed) reject(err);
+    });
+    server.listen(port, "127.0.0.1", () => {
+      const addr = server.address();
+      if (!addr || typeof addr === "string") {
+        server.close();
+        reject(new Error("Failed to determine callback server port"));
+        return;
+      }
+      const boundPort = addr.port;
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        if (pendingReject) {
+          const rej = pendingReject;
+          pendingResolve = null;
+          pendingReject = null;
+          rej(new AuthCancelledError("Callback server closed before callback received"));
+        }
+        server.close();
+      };
+      resolve2({
+        port: boundPort,
+        close,
+        waitForCallback(timeoutMs) {
+          return new Promise((res2, rej2) => {
+            pendingResolve = res2;
+            pendingReject = rej2;
+            timer = setTimeout(() => {
+              pendingResolve = null;
+              pendingReject = null;
+              timer = null;
+              close();
+              rej2(new AuthTimeoutError());
+            }, timeoutMs);
+          });
+        }
+      });
+    });
+  });
+}
+
+// ../../../packages/core/src/oauth/pkce.ts
+import { createHash, randomBytes } from "node:crypto";
+function base64url(buf) {
+  return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function generateVerifier() {
+  return base64url(randomBytes(64));
+}
+function verifierToChallenge(verifier) {
+  return base64url(createHash("sha256").update(verifier).digest());
+}
+function generateState() {
+  return base64url(randomBytes(32));
+}
+
+// ../../../packages/core/src/oauth/flow.ts
+var DEFAULT_FLOW_TIMEOUT_MS = 5 * 60 * 1e3;
+function toTokenBundle(body, now = Date.now()) {
+  if (!body.access_token || !body.id_token) {
+    throw new AuthIdpError("Token endpoint response missing access_token or id_token");
+  }
+  const expiresIn = typeof body.expires_in === "number" ? body.expires_in : 3600;
+  return {
+    access_token: body.access_token,
+    id_token: body.id_token,
+    refresh_token: typeof body.refresh_token === "string" ? body.refresh_token : null,
+    expires_at: now + expiresIn * 1e3
+  };
+}
+async function postForm(url, body, fetcher = fetch) {
+  const form = new URLSearchParams(body).toString();
+  const res = await fetcher(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: form
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new AuthIdpError(`Token endpoint returned ${res.status}: ${text}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new AuthIdpError(`Token endpoint returned non-JSON body: ${text.slice(0, 200)}`);
+  }
+}
+async function runAuthorizationCodeFlow(config, options) {
+  const { openExternal, onOpenFailure } = options;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_FLOW_TIMEOUT_MS;
+  const verifier = generateVerifier();
+  const challenge = verifierToChallenge(verifier);
+  const state = generateState();
+  const serverOpts = {};
+  if (options.port !== void 0) serverOpts.port = options.port;
+  if (options.successMessage !== void 0) serverOpts.successMessage = options.successMessage;
+  const server = await startCallbackServer(serverOpts);
+  try {
+    const redirectUri = options.port === void 0 ? REDIRECT_URI : `http://127.0.0.1:${server.port}/callback`;
+    const params = new URLSearchParams({
+      response_type: "code",
+      client_id: config.clientId,
+      redirect_uri: redirectUri,
+      scope: config.scopes.join(" "),
+      state,
+      code_challenge: challenge,
+      code_challenge_method: "S256"
+    });
+    const authorizeUrl = `${config.authorizeUrl}?${params.toString()}`;
+    let launched = false;
+    let openError;
+    try {
+      launched = await openExternal(authorizeUrl);
+    } catch (err) {
+      openError = err;
+    }
+    if (onOpenFailure === "abort") {
+      if (openError !== void 0) throw openError;
+      if (!launched) {
+        throw new AuthCancelledError("Could not open external browser for sign-in");
+      }
+    }
+    const cb = await server.waitForCallback(timeoutMs);
+    if (cb.state !== state) {
+      throw new AuthStateMismatchError();
+    }
+    const tokenBody = await postForm(
+      config.tokenUrl,
+      {
+        grant_type: "authorization_code",
+        code: cb.code,
+        redirect_uri: redirectUri,
+        client_id: config.clientId,
+        code_verifier: verifier
+      },
+      options.fetcher
+    );
+    return toTokenBundle(tokenBody);
+  } finally {
+    server.close();
+  }
+}
+
+// ../../../packages/core/src/auth.ts
 function defaultCredentialsPath() {
   const override = process.env.ARCHASCODE_CREDENTIALS_PATH;
   if (override) {
@@ -830,6 +1087,79 @@ async function login(opts) {
     refreshToken: authResult.RefreshToken ?? "",
     accessToken: authResult.AccessToken,
     accessTokenExpiresAt,
+    clientId,
+    region,
+    cloudUrl
+  };
+  await writeCredentials(credentialsPath, creds);
+  return creds;
+}
+function usernameFromAccessToken(token) {
+  try {
+    const parts = token.split(".");
+    const payloadSegment = parts[1];
+    if (parts.length !== 3 || !payloadSegment) {
+      return "";
+    }
+    const padded = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
+    const json = Buffer.from(padded, "base64").toString("utf8");
+    const payload = JSON.parse(json);
+    return typeof payload.username === "string" ? payload.username : "";
+  } catch {
+    return "";
+  }
+}
+async function loginWithBrowser(opts) {
+  const region = opts.region ?? cognitoRegion();
+  const clientId = opts.clientId ?? cognitoClientId();
+  const credentialsPath = opts.credentialsPath ?? defaultCredentialsPath();
+  const cloudUrl = opts.cloudUrl ?? HOSTED_CLOUD_URL;
+  if (!clientId) {
+    throw new Error(
+      "archascode cloud auth is not yet provisioned: ARCHASCODE_COGNITO_CLIENT_ID is unset and no client id has been baked in \u2014 see infra/README.md"
+    );
+  }
+  let authorizeUrl = opts.authorizeUrl;
+  let tokenUrl = opts.tokenUrl;
+  if (authorizeUrl === void 0 && tokenUrl === void 0) {
+    const domain = cognitoHostedUiDomain();
+    if (!domain) {
+      throw new Error(
+        "archascode browser login is not yet provisioned: ARCHASCODE_COGNITO_DOMAIN is unset and no Hosted UI domain has been baked in \u2014 see infra/README.md"
+      );
+    }
+    authorizeUrl = `${domain}/oauth2/authorize`;
+    tokenUrl = `${domain}/oauth2/token`;
+  } else {
+    authorizeUrl = authorizeUrl ?? `${cognitoHostedUiDomain()}/oauth2/authorize`;
+    tokenUrl = tokenUrl ?? `${cognitoHostedUiDomain()}/oauth2/token`;
+  }
+  let bundle;
+  try {
+    bundle = await runAuthorizationCodeFlow(
+      { authorizeUrl, tokenUrl, clientId, scopes: ["openid"] },
+      {
+        openExternal: opts.openExternal,
+        onOpenFailure: "wait",
+        successMessage: "You can close this tab and return to your terminal.",
+        ...opts.fetcher !== void 0 ? { fetcher: opts.fetcher } : {},
+        ...opts.port !== void 0 ? { port: opts.port } : {},
+        ...opts.timeoutMs !== void 0 ? { timeoutMs: opts.timeoutMs } : {}
+      }
+    );
+  } catch (err) {
+    if (err && typeof err === "object" && err.code === "EADDRINUSE") {
+      throw new Error(
+        "another login is already in progress (port 53682 is busy) \u2014 finish or cancel it, then retry"
+      );
+    }
+    throw err;
+  }
+  const creds = {
+    username: usernameFromAccessToken(bundle.access_token),
+    refreshToken: bundle.refresh_token ?? "",
+    accessToken: bundle.access_token,
+    accessTokenExpiresAt: new Date(bundle.expires_at).toISOString(),
     clientId,
     region,
     cloudUrl
@@ -1119,7 +1449,7 @@ var USAGE = `archascode \u2014 local CLI
 
 Usage:
   archascode render [<spec-path>] [--out <dir>] [--cloud-url <url>] [--json]
-  archascode login [--cloud-url <url>] [--username <name>]
+  archascode login [--cloud-url <url>] [--password] [--username <name>]
   archascode logout
   archascode record-handoff --id <handoff-id> --hash <contract-hash> [--out <dir>]
   archascode cut-schema-migration [--name <slug>] [--out <dir>] [--json]
@@ -1184,14 +1514,19 @@ Options:
   -h, --help          Show this message
 
 login / logout \u2014 archascode cloud accounts are invite-only: an operator
-           creates your user via \`admin-create-user\`, and your first login
-           asks you to choose a new password (Cognito's NEW_PASSWORD_REQUIRED
-           challenge). \`login\` prompts for username/password (or takes
-           --username) and caches tokens + the cloud URL at
-           ~/.archascode/credentials.json (mode 0600). \`logout\` deletes that
-           file. Requires a TTY; there is no non-interactive form (no
-           --password flag \u2014 passwords are never accepted on the command
-           line).
+           creates your user via \`admin-create-user\`. By default, \`login\`
+           opens the Cognito Hosted UI in your system browser (and always
+           prints the sign-in URL, in case the browser doesn't launch) \u2014
+           no TTY needed, so this works inside a Claude Code Bash tool call.
+           Your first login asks you to choose a new password there
+           (Cognito's NEW_PASSWORD_REQUIRED challenge, rendered as a normal
+           web page). \`--password\` (implied by --username) instead runs
+           the classic TTY username/password prompt flow, for SSH/headless
+           machines the browser flow can't reach. Either route caches
+           tokens + the cloud URL at ~/.archascode/credentials.json (mode
+           0600). \`logout\` deletes that file. Passwords are never accepted
+           on the command line \u2014 \`login\` rejects stray positional
+           arguments loudly rather than silently ignoring them.
 
 db plan  \u2014 read-only preview: connects to the target, computes the true
            pending cut set, runs divergence checks, and emits the exact SQL
@@ -1221,6 +1556,7 @@ async function main(argv) {
         out: { type: "string", default: "." },
         "cloud-url": { type: "string" },
         username: { type: "string" },
+        password: { type: "boolean", default: false },
         json: { type: "boolean", default: false },
         id: { type: "string" },
         hash: { type: "string" },
@@ -1255,7 +1591,7 @@ ${USAGE}`);
     return await runRender(values, rest);
   }
   if (command === "login") {
-    return await runLogin(values, defaultAuthCliDeps());
+    return await runLogin(values, rest, defaultAuthCliDeps());
   }
   if (command === "logout") {
     return await runLogout(values, defaultAuthCliDeps());
@@ -1394,6 +1730,24 @@ function promptMasked(question) {
     stdin.on("data", onData);
   });
 }
+async function openSystemBrowser(url) {
+  process.stderr.write(`Open this URL to sign in:
+  ${url}
+`);
+  const [cmd, args] = process.platform === "darwin" ? ["open", [url]] : process.platform === "win32" ? ["cmd", ["/c", "start", '""', url]] : ["xdg-open", [url]];
+  try {
+    const child = spawn2(cmd, args, {
+      detached: true,
+      stdio: "ignore"
+    });
+    child.on("error", () => {
+    });
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
 function defaultAuthCliDeps() {
   return {
     prompt: async (q) => {
@@ -1417,18 +1771,45 @@ function defaultAuthCliDeps() {
     },
     login,
     logout,
-    isTTY: () => process.stdin.isTTY === true
+    isTTY: () => process.stdin.isTTY === true,
+    loginWithBrowser: (opts) => loginWithBrowser({ ...opts, openExternal: openSystemBrowser })
   };
 }
-async function runLogin(values, deps) {
+async function runLogin(values, rest, deps) {
+  if (rest.length > 0) {
+    process.stderr.write(
+      `login: unexpected argument(s) \u2014 passwords are never accepted on the command line
+
+${USAGE}`
+    );
+    return 2;
+  }
+  const explicitCloudUrl = values["cloud-url"];
   const explicitUsername = values.username;
+  const usePassword = Boolean(values.password) || explicitUsername !== void 0;
+  if (!usePassword) {
+    try {
+      const creds = await deps.loginWithBrowser({
+        ...explicitCloudUrl !== void 0 ? { cloudUrl: explicitCloudUrl } : {}
+      });
+      process.stdout.write(
+        creds.username ? `logged in as ${creds.username} (${creds.cloudUrl})
+` : `logged in (${creds.cloudUrl})
+`
+      );
+      return 0;
+    } catch (err) {
+      process.stderr.write(`login failed: ${err.message}
+`);
+      return 1;
+    }
+  }
   if (!deps.isTTY()) {
     process.stderr.write("login: no TTY for prompts\n");
     return 2;
   }
   const username = explicitUsername ?? await deps.prompt("Username: ");
   const password = await deps.promptSecret("Password: ");
-  const explicitCloudUrl = values["cloud-url"];
   try {
     const creds = await deps.login({
       username,
