@@ -1,24 +1,24 @@
 ---
-name: aac-wire
+name: wire
 description: Wire real adapters into an archascode consuming project — an interview that writes the persistence stratum (adapters.persistence.sqlserver, per-entity opt-ins, environments) into spec/architecture.yml, validates via a scratch render, and pre-seeds the new envs' .env.<env>.example files. Bare invocation reports current wiring. Use after the in-memory first run, when the user is ready for a real database.
 ---
 
-# /aac-wire
+# /archascode:wire
 
 Bind real adapters to ports that are running on synthesized defaults.
-`architecture.yml` carries two strata: the domain HOW (`/aac-analyze`'s
+`architecture.yml` carries two strata: the domain HOW (`/archascode:analyze`'s
 job — entities, invariants, methods, derivable from the PRD) and the
 infra HOW (adapters, environments — not derivable from any PRD). This
 skill owns the second stratum, as an interview:
 
 ```
-/aac-analyze → /aac-init → /aac-apply → /aac-seed → aac up   # act one: memory, zero infra questions
-/aac-wire persistence                                        # act two: make it real
-/aac-init → /aac-apply → cp .env.docker.example .env.docker → aac up --env docker
+/archascode:analyze → /archascode:init → /archascode:apply → /archascode:seed → aac up   # act one: memory, zero infra questions
+/archascode:wire persistence                                        # act two: make it real
+/archascode:init → /archascode:apply → cp .env.docker.example .env.docker → aac up --env docker
 ```
 
 The skill edits `spec/architecture.yml` only — additively, via the same
-uv-provisioned `ruamel.yaml` round-trip `/aac-init` uses (ADR 070 A1),
+uv-provisioned `ruamel.yaml` round-trip `/archascode:init` uses (ADR 070 A1),
 so comments and formatting survive. It validates the edit with a
 scratch render, pre-seeds the engine-authored `.env.<env>.example`
 template for each environment it creates, and prints a posture-aware
@@ -34,31 +34,34 @@ next-steps chain. It never runs that chain itself.
     `auth wiring is not implemented yet — posture lives on api.auth (ADR 033); adapter selection is a hand edit today` and stop.
   - anything else — print the grammar above and stop.
 - `--context <text>` — optional free-text steering, mirroring
-  `/aac-analyze`. When it answers an interview question
+  `/archascode:analyze`. When it answers an interview question
   (`"docker only"`, `"qa + prod on an external server, protected"`),
   the skill skips asking that question.
 
 ```
-/aac-wire
-/aac-wire persistence
-/aac-wire persistence --context "docker only; Sessions stay in memory"
+/archascode:wire
+/archascode:wire persistence
+/archascode:wire persistence --context "docker only; Sessions stay in memory"
 ```
 
 ## Preconditions
 
 - `spec/architecture.yml` exists. If not:
-  `no spec/architecture.yml — run /aac-analyze <prd.md> (or write one by hand) first` — stop.
-- `persistence` mode only: the `archascode` CLI is available (PATH, or
-  `node <archascode-repo>/apps/local/cli/dist/cli.mjs`), and the user is
-  logged in (`archascode login`).
+  `no spec/architecture.yml — run /archascode:analyze <prd.md> (or write one by hand) first` — stop.
+- `persistence` mode only: the `archascode` CLI is on the Bash PATH — the
+  plugin's `bin/` provides it. If `command -v archascode` fails, the
+  plugin install is broken: re-enable/reinstall per INSTALL.md and check
+  the wrapper's executable bit
+  (`chmod +x <kit>/marketplace/plugins/archascode/bin/archascode`). The
+  user must also be logged in (`archascode login`).
 - `persistence` mode only: `uv` is on PATH (the spec write runs under
-  `uv run --no-project --with 'ruamel.yaml'`, same as `/aac-init`).
+  `uv run --no-project --with 'ruamel.yaml'`, same as `/archascode:init`).
 - No manifest, no `.venv`, no prior render required. Wire runs before
-  or after the first `/aac-apply` equally well.
+  or after the first `/archascode:apply` equally well.
 
 Report mode needs only the spec file.
 
-## Report mode (bare `/aac-wire`)
+## Report mode (bare `/archascode:wire`)
 
 Read `spec/architecture.yml` and print, in order:
 
@@ -69,13 +72,13 @@ Read `spec/architecture.yml` and print, in order:
    sqlserver binding — deliberate mixed storage, or an oversight).
 2. **Environments** — a table of `name / port_binding / compute /
    data`, marking `default_environment`. A spec with none (pre-ADR-070
-   floor) gets: `no environments declared — /aac-init will scaffold dev (memory)`.
+   floor) gets: `no environments declared — /archascode:init will scaffold dev (memory)`.
 3. **Auth** — `adapters.auth.id` if declared, else
    `noop (by omission)`; note that adapter selection is a hand edit
-   today (`/aac-wire auth` is reserved).
+   today (`/archascode:wire auth` is reserved).
 4. **Open decisions** — one line per unwired stratum, each with its
    pointer, e.g.
-   `Persistence: memory (by omission) — run /aac-wire persistence when ready for a real database.`
+   `Persistence: memory (by omission) — run /archascode:wire persistence when ready for a real database.`
 
 No writes, no render, no questions.
 
@@ -84,9 +87,9 @@ No writes, no render, no questions.
 ### Step 1 — verify preconditions
 
 ```bash
-test -f spec/architecture.yml || { echo "no spec/architecture.yml — run /aac-analyze first"; exit 1; }
+test -f spec/architecture.yml || { echo "no spec/architecture.yml — run /archascode:analyze first"; exit 1; }
 command -v uv >/dev/null 2>&1 || { echo "uv is required but not on PATH"; exit 1; }
-command -v archascode >/dev/null 2>&1 || echo "archascode CLI not on PATH — use node <repo>/apps/local/cli/dist/cli.mjs"
+command -v archascode >/dev/null 2>&1 || echo "archascode CLI not on PATH — the plugin install is broken; see INSTALL.md"
 ```
 
 ### Step 2 — already-wired check
@@ -108,9 +111,9 @@ buys two guarantees at the cost of one fast render: the cloud service
 is reachable before the spec is mutated, and any Step-6 failure is
 attributable to wire's own edit. If the baseline is red, print the
 errors and stop:
-`spec is failing validation before any wiring — fix it first (the /aac-apply loop is the usual path)`.
+`spec is failing validation before any wiring — fix it first (the /archascode:apply loop is the usual path)`.
 A connection failure here is the cloud-service precondition; same
-posture as `/aac-analyze`. Exit **2** with no JSON on stdout means not
+posture as `/archascode:analyze`. Exit **2** with no JSON on stdout means not
 logged in, not a render failure. Report `not logged in — run archascode
 login` and stop.
 
@@ -157,7 +160,7 @@ Before writing, check the chosen environment names against existing
 `environment '<name>' already exists — pick another name or hand-edit it`.
 
 Then apply every mutation in **one** load → edit → dump pass, using
-`/aac-init` Step 3's exact loader settings (this skeleton is the
+`/archascode:init` Step 3's exact loader settings (this skeleton is the
 contract; fill the interview-derived values in):
 
 ```bash
@@ -247,8 +250,8 @@ resurrect an example the user deliberately deleted.
 default_environment unchanged: dev (memory)
 
 Next:
-1. /aac-init                              # adapter set changed → pymssql
-2. /aac-apply                             # render: docker-compose.yml, schema DDL, sqlserver adapters
+1. /archascode:init                       # adapter set changed → pymssql
+2. /archascode:apply                      # render: docker-compose.yml, schema DDL, sqlserver adapters
 3. cp .env.docker.example .env.docker     # DB_USER=sa already set
 4. aac up --env docker                    # ephemeral: up owns the schema (ADR 052)
 ```
@@ -258,8 +261,8 @@ When a protected env was created, append its branch:
 ```
 prod (protected) — when ready:
   fill .env.prod from .env.prod.example (real credentials; never committed)
-  /aac-cut-schema-migration                # seal pending DDL
-  /aac-deploy prod                         # archascode db apply --env prod
+  /archascode:cut-schema-migration         # seal pending DDL
+  /archascode:db apply prod   # archascode db apply --env prod
 ```
 
 Every step in the chain is the user's to invoke — wire runs none of
@@ -267,7 +270,7 @@ them (family rule).
 
 ## What this skill does NOT do
 
-- **Run `/aac-init`, `/aac-apply`, or `/aac-deploy`.** Explicit
+- **Run `/archascode:init`, `/archascode:apply`, or `/archascode:db apply`.** Explicit
   invocation only — family rule.
 - **Write or read a live `.env` / `.env.<env>`, or ask for
   credentials.** The interview carries no secrets; placeholders stay
@@ -284,7 +287,7 @@ them (family rule).
 - **Re-wire.** A spec with `adapters.persistence.sqlserver` already
   present gets a report and a stop, not a merge.
 - **Adopt an existing database.** `--baseline-existing-target` and the
-  adoption runbook live at `/aac-deploy`'s layer; wire prints the
+  adoption runbook live at `/archascode:db apply`'s layer; wire prints the
   pointer and moves on.
 - **Modify the plugin UI.** Surfacing the memory-by-omission default
   on the canvas is separate work.
@@ -293,7 +296,7 @@ them (family rule).
 
 | Symptom                                              | Behavior                                                                      |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------ |
-| No `spec/architecture.yml`                            | Point at `/aac-analyze`; stop.                                                 |
+| No `spec/architecture.yml`                            | Point at `/archascode:analyze`; stop.                                                 |
 | Unknown target argument                               | Print the grammar (bare = report, `persistence`, `auth` reserved); stop.       |
 | `uv` / `archascode` CLI missing                       | Print the pointer; stop. Nothing written.                                      |
 | Baseline render red or cloud unreachable (Step 3)     | Print errors / the URL precondition; stop. Nothing written.                    |
@@ -309,7 +312,7 @@ whatever the error surfaced.
 ## Notes for future versions
 
 - **`auth` target** — jwt_bearer selection, key-config env vars, and
-  the claims-mapper hand-off (dispatched by `/aac-apply`); plus
+  the claims-mapper hand-off (dispatched by `/archascode:apply`); plus
   per-binding `app_adapters.auth` overrides.
 - **Postgres** — flip the not-supported branch into a real backend
   fork when the engine adapter lands; the interview already asks.

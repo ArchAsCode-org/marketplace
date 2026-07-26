@@ -35,8 +35,9 @@ From any Claude Code session, run these two commands **one at a time**:
 Choose **user scope** ("Install for you") when prompted. Then restart the
 Claude Code session — plugin skills and the CLI load at session start.
 
-That installs the nine skills (the eight `aac-*` skills plus `login`) and
-puts the `archascode` CLI on the Claude Code Bash tool's PATH.
+That installs the ten skills (`analyze`, `init`, `apply`, `seed`, `wire`,
+`clean`, `cut-schema-migration`, `db`, `login`, `logout`) and puts the
+`archascode` CLI on the Claude Code Bash tool's PATH.
 
 ## 3. Install the editor extension
 
@@ -83,9 +84,9 @@ run `archascode login --password` in a real terminal instead.
 From your project in Claude Code, run the skills by their namespaced
 names, in order:
 
-1. `/archascode:aac-analyze` — draft `spec/architecture.yml` from your PRD
-2. `/archascode:aac-init` — set up the project environment
-3. `/archascode:aac-apply` — render and resolve hand-offs
+1. `/archascode:analyze` — draft `spec/architecture.yml` from your PRD
+2. `/archascode:init` — set up the project environment
+3. `/archascode:apply` — render and resolve hand-offs
 4. `aac up` — serve the API locally
 
 Open the spec in VS Code/Cursor to see the architecture graph (the

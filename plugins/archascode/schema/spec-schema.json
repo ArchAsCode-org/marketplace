@@ -203,7 +203,7 @@
     },
     "default_environment": {
       "type": "string",
-      "description": "Name of the environment used by aac up / /aac-up when no --env flag is passed. Required when 'environments:' is non-empty."
+      "description": "Name of the environment used by aac up when no --env flag is passed. Required when 'environments:' is non-empty."
     }
   },
   "additionalProperties": false,

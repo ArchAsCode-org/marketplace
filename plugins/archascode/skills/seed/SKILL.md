@@ -1,9 +1,9 @@
 ---
-name: aac-seed
+name: seed
 description: Generate plausible example records for every entity in an archascode-rendered project and write them as a loadable snapshot. Use after `archascode render` when the user wants the running app pre-populated with realistic data instead of an empty database.
 ---
 
-# /aac-seed
+# /archascode:seed
 
 Auto-populate an archascode consuming project with example records by
 generating a snapshot the existing `/admin/snapshot/load` endpoint can
@@ -18,7 +18,7 @@ to be running. If the app is up, the next `POST /admin/snapshot/load`
 The skill *does* import the rendered codec (`src.adapter.persistence._codec`)
 to compute the per-entity fingerprints that ADR 015 requires in the
 manifest. That means the consuming project's `.venv` must exist and have
-the project installed — `/aac-init` is the prerequisite. Reusing the live
+the project installed — `/archascode:init` is the prerequisite. Reusing the live
 codec instead of reimplementing the hash here keeps drift detection and
 seeding in lockstep: when the fingerprint algorithm changes, the seed
 output changes with it, no skill edit required.
@@ -37,10 +37,10 @@ output changes with it, no skill edit required.
 Invocation forms:
 
 ```
-/aac-seed
-/aac-seed --theme "indie coffee roaster"
-/aac-seed --count 10
-/aac-seed --theme "telehealth clinic" --count 6
+/archascode:seed
+/archascode:seed --theme "indie coffee roaster"
+/archascode:seed --count 10
+/archascode:seed --theme "telehealth clinic" --count 6
 ```
 
 ## Preconditions
@@ -48,7 +48,7 @@ Invocation forms:
 - `cwd` is a rendered consuming project: it has
   `.archascode/manifest.json` and a populated `src/domain/entities/`.
   If `src/domain/entities/` is missing, stop and point the user at
-  `archascode render` / `/aac-apply`. Do not try to render here.
+  `archascode render` / `/archascode:apply`. Do not try to render here.
 - `spec/architecture.yml` is present and parses.
 - `src/adapter/persistence/_codec.py` is present — its existence is
   the contract that snapshots are loadable for this render. The
@@ -59,7 +59,7 @@ Invocation forms:
   from it. The skill computes fingerprints by calling into the
   rendered codec, so the venv is load-bearing. If the venv is
   missing or the import fails, stop and point the user at
-  `/aac-init`.
+  `/archascode:init`.
 
 If any precondition fails, stop with a clear one-line message naming
 the missing file. Do not try to remediate.
@@ -74,8 +74,7 @@ snapshots/
 ```
 
 The shape matches exactly what the rendered project's `dump_all`
-writes — see `pypackages/engine/src/archascode_engine/rendering/python/snapshot_codec.py`
-for the encoding rules (UUID → str, datetime → isoformat, Decimal →
+writes, using these encoding rules (UUID → str, datetime → isoformat, Decimal →
 str, Enum → `.value`, composite VO → dict-of-fields).
 `entityFingerprints` is required by ADR 015's load gate; the skill
 computes the values by importing the rendered codec rather than
@@ -93,10 +92,10 @@ clobber.
 
 ```bash
 test -f spec/architecture.yml || { echo "spec/architecture.yml not found"; exit 1; }
-test -d src/domain/entities    || { echo "src/domain/entities not found — run /aac-apply first"; exit 1; }
-test -f src/adapter/persistence/_codec.py || { echo "snapshot codec not rendered — re-run /aac-apply"; exit 1; }
-test -f .archascode/manifest.json || { echo ".archascode/manifest.json missing — re-run /aac-apply"; exit 1; }
-test -d .venv                  || { echo ".venv missing — run /aac-init"; exit 1; }
+test -d src/domain/entities    || { echo "src/domain/entities not found — run /archascode:apply first"; exit 1; }
+test -f src/adapter/persistence/_codec.py || { echo "snapshot codec not rendered — re-run /archascode:apply"; exit 1; }
+test -f .archascode/manifest.json || { echo ".archascode/manifest.json missing — re-run /archascode:apply"; exit 1; }
+test -d .venv                  || { echo ".venv missing — run /archascode:init"; exit 1; }
 uv run python -c "from src.adapter.persistence._codec import compute_entity_fingerprint" \
   || { echo "rendered codec missing compute_entity_fingerprint (ADR 015) — re-render with current engine"; exit 1; }
 ```
@@ -252,7 +251,7 @@ Then write `snapshots/manifest.json` with:
 `schemaTimestamp` matters for the SQL Server binding — the codec's
 `verify_schema` will refuse to load a snapshot whose timestamp doesn't
 match the current schema. For memory binding the field is empty and
-verification is skipped (see `verify_schema` in `snapshot_codec.py`).
+verification is skipped.
 
 `entityFingerprints` is required by `verify_fingerprints` (ADR 015).
 **Do not compute the hash by hand** — the algorithm (sha256 over a
@@ -352,7 +351,7 @@ Next: POST /admin/snapshot/load (or restart aac.py up to autoload)
 | `snapshots/` already exists                            | Prompt: overwrite / merge / cancel. Default to cancel on non-interactive contexts.      |
 | schemaTimestamp absent from `.archascode/manifest.json` | Write `""`; loader will skip verification (matches memory-binding behavior).            |
 | `compute_entity_fingerprint` missing from rendered codec | Stop. Project predates ADR 015 — user must re-render with the current engine.           |
-| `<E>State` not importable from `src.domain.entities.*`  | Stop. Likely an `/aac-apply` step was skipped; tell the user to re-render.              |
+| `<E>State` not importable from `src.domain.entities.*`  | Stop. Likely an `/archascode:apply` step was skipped; tell the user to re-render.              |
 
 No retries. The user re-invokes after adjusting the spec or theme.
 

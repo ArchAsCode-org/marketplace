@@ -1,9 +1,9 @@
 ---
-name: aac-cut-schema-migration
+name: cut-schema-migration
 description: Cut the in-flight schema migration in an archascode consuming project by calling `archascode cut-schema-migration`. Use when the user wants to seal pending DDL into a named, append-only migration file without leaving the Claude session.
 ---
 
-# /aac-cut-schema-migration
+# /archascode:cut-schema-migration
 
 Thin wrapper over the `archascode cut-schema-migration` CLI (ADR 019,
 ADR 020). The CLI does all the real work — read `_inflight.sql`,
@@ -22,9 +22,9 @@ terminal.
 Invocation forms:
 
 ```
-/aac-cut-schema-migration
-/aac-cut-schema-migration add_customer_email
-/aac-cut-schema-migration "drop legacy orders index"
+/archascode:cut-schema-migration
+/archascode:cut-schema-migration add_customer_email
+/archascode:cut-schema-migration "drop legacy orders index"
 ```
 
 ## Preconditions

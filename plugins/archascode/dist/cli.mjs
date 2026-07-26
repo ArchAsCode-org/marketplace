@@ -470,7 +470,7 @@ var HOSTED_CLOUD_URL = "https://api.archascode.com";
 var COGNITO_REGION = "us-east-1";
 var COGNITO_CLIENT_ID = "5bll6vjhs6ivlqlik4kllt1i5j";
 var COGNITO_PASSWORD_REQUIREMENTS = "at least 8 characters, including an uppercase letter, a lowercase letter, a number, and a symbol";
-var COGNITO_HOSTED_UI_DOMAIN = "";
+var COGNITO_HOSTED_UI_DOMAIN = "https://archascode-auth.auth.us-east-1.amazoncognito.com";
 function cognitoHostedUiDomain(env = process.env) {
   return env.ARCHASCODE_COGNITO_DOMAIN ?? COGNITO_HOSTED_UI_DOMAIN;
 }

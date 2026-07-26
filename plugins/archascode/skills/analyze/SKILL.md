@@ -1,19 +1,19 @@
 ---
-name: aac-analyze
+name: analyze
 description: Analyze a PRD document and draft a first-pass spec/architecture.yml for an archascode consuming project — entities, relationships, enums, value objects, invariants, methods, and API posture — validated against the real engine via a scratch-dir render. Use at project start, when a PRD exists but spec/architecture.yml does not.
 ---
 
-# /aac-analyze
+# /archascode:analyze
 
 Turn a PRD into a first-pass `spec/architecture.yml`. This is the front
 door of the pipeline — it fills the "create spec/architecture.yml by
-hand" hole between greenfield and `/aac-init`:
+hand" hole between greenfield and `/archascode:init`:
 
 ```
-/aac-analyze <prd.md>  →  spec/architecture.yml + spec/analysis.md
-/aac-init              →  pyproject.toml + .venv matching the spec
-/aac-apply             →  render + hand-off dispatch
-/aac-seed → aac.py up
+/archascode:analyze <prd.md>  →  spec/architecture.yml + spec/analysis.md
+/archascode:init              →  pyproject.toml + .venv matching the spec
+/archascode:apply             →  render + hand-off dispatch
+/archascode:seed → aac.py up
 ```
 
 The skill produces **two artifacts of equal standing**: the spec, and a
@@ -56,9 +56,9 @@ is strictly stronger than a schema lint.
 Invocation forms:
 
 ```
-/aac-analyze docs/product_prd.md
-/aac-analyze docs/product_prd.md --context "auth on; ignore the mobile app sections"
-/aac-analyze docs/product_prd.md --interactive
+/archascode:analyze docs/product_prd.md
+/archascode:analyze docs/product_prd.md --context "auth on; ignore the mobile app sections"
+/archascode:analyze docs/product_prd.md --interactive
 ```
 
 ## Preconditions
@@ -66,11 +66,13 @@ Invocation forms:
 - The PRD file exists and is readable text.
 - `cwd` is the consuming project root (the directory where `spec/`
   belongs).
-- The `archascode` CLI is available (same posture as `/aac-apply`:
-  assume PATH, or invoke via `node /<repo>/apps/local/cli/dist/cli.mjs`).
+- The `archascode` CLI is on the Bash PATH — the plugin's `bin/` provides
+  it. If `command -v archascode` fails, the plugin install is broken:
+  re-enable/reinstall per INSTALL.md and check the wrapper's executable
+  bit (`chmod +x <kit>/marketplace/plugins/archascode/bin/archascode`).
 - The user is logged in (`archascode login`).
 - `.venv` / `pyproject.toml` are **not** required. Analyze precedes
-  `/aac-init`; render needs neither.
+  `/archascode:init`; render needs neither.
 
 If `spec/architecture.yml` already exists, **stop and ask** before
 touching it. Offer: overwrite, write the draft to
@@ -98,7 +100,7 @@ go to a scratch directory that is deleted afterward.
 
 ```bash
 test -f "$PRD_PATH" || { echo "PRD not found: $PRD_PATH"; exit 1; }
-command -v archascode >/dev/null 2>&1 || { echo "archascode CLI not on PATH — run make install:local in the archascode repo"; exit 1; }
+command -v archascode >/dev/null 2>&1 || { echo "archascode CLI not on PATH — the plugin install is broken; re-enable/reinstall per INSTALL.md"; exit 1; }
 test -f spec/architecture.yml && echo "spec/architecture.yml exists — ask before proceeding"
 ```
 
@@ -187,7 +189,7 @@ order:
 only when the PRD *explicitly names* a cross-entity read or workflow —
 a dashboard, a report, a summary view. Model reads CQRS-lite: a custom
 port returning an inline DTO, a thin pass-through use case. Each one
-creates hand-off obligations that `/aac-apply` fills later; that is
+creates hand-off obligations that `/archascode:apply` fills later; that is
 expected, but every speculative one dilutes the first pass, so when in
 doubt it goes in the report as a *candidate*, not in the spec.
 
@@ -213,7 +215,7 @@ Step 5 catches anything this summary gets wrong):
   on. **Omit `adapters`, `port_bindings`, and `environments`
   entirely** — the engine defaults to the memory binding, which is the
   fastest path to a running app; switching to sqlserver later is
-  `/aac-wire persistence`.
+  `/archascode:wire persistence`.
 - **Entities**: `domain.entities.<PascalName>` with `description` and
   `attributes` (required key). Give every entity `id: {type: UUID}`
   plus `created_at`/`updated_at` as `{type: datetime, generated: true}`
@@ -222,7 +224,7 @@ Step 5 catches anything this summary gets wrong):
   `UUID` | `datetime` | `date` | `decimal` | `json`, or a declared VO
   or enum name. Attributes default to required; mark optional fields
   `required: false`. `pattern`, `examples`, and `faker` hints are
-  optional but cheap — `faker` hints feed `/aac-seed` later.
+  optional but cheap — `faker` hints feed `/archascode:seed` later.
 - **Relationships**: `relationships.<key>: {entity, cardinality,
   on_delete?, required?}` with `cardinality` ∈ `one-to-one` |
   `one-to-many` | `many-to-one` | `many-to-many`. Let the engine
@@ -260,8 +262,8 @@ Step 5 catches anything this summary gets wrong):
   case + endpoint (ADR 039). An aggregate-construction factory is
   `static: true`, never named `create`, paired with
   `api.disabled: [create]` on the root (ADR 060). Method bodies are
-  `entity_method` hand-offs — `/aac-apply` fills them; the spec carries
-  only signatures and intent.
+  `entity_method` hand-offs — `/archascode:apply` fills them; the spec
+  carries only signatures and intent.
 - **API posture**: app-wide `api: {auth: {type: jwt, scheme: bearer}}`
   when the PRD requires authentication (posture cascades to every
   entity, ADR 033); per-entity override `entity.api.auth: required |
@@ -290,7 +292,7 @@ Step 5 catches anything this summary gets wrong):
     The engine injects one `MemoryStore[<Entity>State]` per listed entity
     via a generated base class. **Omit `reads` and the adapter is seeded
     with an empty constructor and no stores — literally unimplementable**,
-    and `/aac-apply` will stop with `NEEDS SPEC: ports.<Port>.adapters.
+    and `/archascode:apply` will stop with `NEEDS SPEC: ports.<Port>.adapters.
     memory.reads must include <Entity>`. List every entity the read
     touches.
   - Prefer typed port `value_objects` over an attribute of type `json`
@@ -299,21 +301,15 @@ Step 5 catches anything this summary gets wrong):
     forces the adapter to invent a dict-shaped wrapper for what is
     plainly a list.
   - Workflow bodies and adapter implementations become hand-offs for
-    `/aac-apply`.
+    `/archascode:apply`.
 
 **The schema is the contract; this summary is a convenience.** The
 authoritative shape of every construct above lives in the engine's
-`spec-schema.json`, at one of two locations depending on where you are
-running — read whichever exists:
+`spec-schema.json`, bundled with the plugin — read it at:
 
 ```
 ${CLAUDE_PLUGIN_ROOT}/schema/spec-schema.json
-<archascode-repo>/pypackages/engine/src/archascode_engine/_spec/schema_files/spec-schema.json
 ```
-
-The first is the copy bundled when running as the installed archascode
-plugin (that placeholder is substituted in skill markdown); the second is
-the engine source when working inside the archascode monorepo.
 
 Its `definitions` block is the ground truth (`ApplicationPort`,
 `ApplicationPortMethod`, `ApplicationUseCase`, `UseCaseUses`,
@@ -333,7 +329,7 @@ schema_version: "1.0"
 metadata:
   name: field-service-tracker
   version: "0.1.0"
-  description: First-pass spec drafted from docs/prd.md by /aac-analyze
+  description: First-pass spec drafted from docs/prd.md by /archascode:analyze
 api:
   auth: { type: jwt, scheme: bearer }
 domain:
@@ -425,19 +421,19 @@ rm -rf "$SCRATCH"
 ```
 
 - **Connection failure** → the cloud service isn't reachable. Stop and
-  report it, same posture as `/aac-apply`. Exit **2** with no JSON on
+  report it, same posture as `/archascode:apply`. Exit **2** with no JSON on
   stdout means not logged in, not a render failure. Report `not logged
   in — run archascode login` and stop.
 
 A successful validation may report pending hand-offs (seeded method
 bodies, custom-port adapters). That's healthy — it's exactly what
-`/aac-apply` consumes next; mention the count in the summary.
+`/archascode:apply` consumes next; mention the count in the summary.
 
 **Before deleting the scratch directory, check every memory custom-port
 adapter for injected stores.** A render goes green whether or not a port
 declared `adapters.memory.reads`, but omitting it emits a base class with
 an empty constructor — an adapter with nothing to read, which only fails
-later, mid-`/aac-apply`, after overlays have been seeded against it. The
+later, mid-`/archascode:apply`, after overlays have been seeded against it. The
 scratch tree already holds the answer:
 
 ```bash
@@ -450,7 +446,7 @@ done
 
 Any hit means the spec is under-declared: add the entities the read
 touches to `ports.<Port>.adapters.memory.reads` and re-render. Fixing it
-here costs one iteration; finding it in `/aac-apply` costs a stale
+here costs one iteration; finding it in `/archascode:apply` costs a stale
 overlay tree.
 
 ### Step 6 — write the coverage report
@@ -459,7 +455,7 @@ Write `spec/analysis.md`:
 
 ```markdown
 # <Project> — PRD → architecture.yml coverage
-Source: <prd-path> · Drafted: <date> · By: /aac-analyze
+Source: <prd-path> · Drafted: <date> · By: /archascode:analyze
 
 ## Requirement map
 | PRD requirement | Disposition | Where / why |
@@ -478,8 +474,8 @@ Source: <prd-path> · Drafted: <date> · By: /aac-analyze
 - <verbatim from the PRD, plus any the analysis surfaced>
 
 ## Next steps
-/aac-init → /aac-apply (N pending hand-offs) → /aac-seed → aac.py up
-Persistence: memory (by omission) — run /aac-wire persistence when ready for a real database.
+/archascode:init → /archascode:apply (N pending hand-offs) → /archascode:seed → aac.py up
+Persistence: memory (by omission) — run /archascode:wire persistence when ready for a real database.
 ```
 
 Every PRD functional requirement appears in the map exactly once —
@@ -490,8 +486,8 @@ the table is the completeness check on the analysis itself.
 ```
 ✓ spec/architecture.yml — E entities, R relationships, N enums, V value objects, M methods (validated in K render pass(es))
 ✓ spec/analysis.md — X requirements mapped, Y assumptions, Z gaps (A load-bearing forks resolved by default — see Assumptions)
-Next: /aac-init, then /aac-apply (P hand-offs pending)
-Persistence: memory (by omission) — /aac-wire persistence when ready
+Next: /archascode:init, then /archascode:apply (P hand-offs pending)
+Persistence: memory (by omission) — /archascode:wire persistence when ready
 ```
 
 Omit the parenthetical fork count when `--interactive` was set (forks
@@ -501,12 +497,12 @@ were asked, not defaulted).
 
 - **Render into the project tree.** All validation renders target a
   scratch `--out` directory, deleted afterward. The next real render
-  belongs to `/aac-apply`.
-- **Run `/aac-init` or `/aac-apply`.** Explicit invocation only —
+  belongs to `/archascode:apply`.
+- **Run `/archascode:init` or `/archascode:apply`.** Explicit invocation only —
   family rule.
 - **Draft `adapters` / `port_bindings` / `environments`.** The first
   pass is memory-bound by omission; persistence and deployment choices
-  belong to `/aac-wire persistence`, invoked when the user is ready.
+  belong to `/archascode:wire persistence`, invoked when the user is ready.
 - **Select an auth adapter.** The spec carries auth *posture*;
   jwt_bearer selection, key config, and claims mapping are recorded in
   the report as next steps.
@@ -524,8 +520,8 @@ were asked, not defaulted).
 | No argument given                                    | Print "critique mode not implemented — pass a PRD path"; stop.               |
 | PRD path missing / unreadable                        | Print the path; stop.                                                        |
 | `spec/architecture.yml` already exists               | Prompt: overwrite / write `.proposed.yml` / cancel. Cancel when non-interactive. |
-| `archascode` CLI not on PATH                         | Print install pointer (`make install:local` in the archascode repo); stop.   |
-| Cloud service unreachable                            | Print the URL precondition; stop. Same posture as `/aac-apply`.               |
+| `archascode` CLI not on PATH                         | Print install pointer (re-enable/reinstall the plugin per INSTALL.md); stop. |
+| Cloud service unreachable                            | Print the URL precondition; stop. Same posture as `/archascode:apply`.               |
 | Render still `ok: false` after 5 iterations          | Stop; leave the draft; print remaining errors verbatim.                       |
 | PRD yields no identifiable entities                  | Stop and say so; a fabricated domain is worse than no draft.                  |
 

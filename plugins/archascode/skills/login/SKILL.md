@@ -3,7 +3,7 @@ name: login
 description: Log in to archascode cloud from a Claude Code session — runs `archascode login` (browser PKCE flow) in the background, relays the sign-in URL, and reports the outcome. Use when the user needs to authenticate for /render (first run, expired session, 401 hints).
 ---
 
-# /login
+# /archascode:login
 
 Thin wrapper over `archascode login`, the browser PKCE flow against our
 Cognito Hosted UI. The CLI does all the real work — start a loopback
@@ -34,7 +34,7 @@ Keep polling until the background task exits, then interpret its output:
 - **Success** (`logged in as …` or `logged in (` in the output) — report
   the signed-in identity to the user.
 - **Timeout** — the flow gave up waiting for the browser round-trip;
-  suggest re-running `/login`.
+  suggest re-running `/archascode:login`.
 - **`EADDRINUSE`** — another login is already in flight on the fixed
   callback port; tell the user to finish or cancel that one first, then
   retry.

@@ -1,5 +1,5 @@
 {
   "name": "archascode",
-  "version": "0.1.1",
-  "description": "archascode toolchain — aac-* skills + the archascode CLI. Proprietary; invite-only evaluation — see LICENSE.txt."
+  "version": "0.2.0",
+  "description": "archascode toolchain — the /archascode:* workflow skills + the archascode CLI. Proprietary; invite-only evaluation — see LICENSE.txt."
 }

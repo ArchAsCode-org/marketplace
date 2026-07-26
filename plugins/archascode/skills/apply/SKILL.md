@@ -1,9 +1,9 @@
 ---
-name: aac-apply
+name: apply
 description: Render the archascode spec and resolve pending impl hand-offs by dispatching sub-agents to fill in `repo_port_extensions` stubs (entity_adapter kind), entity domain-method bodies (entity_method kind), custom port adapter implementations (custom_port_adapter kind), or custom use-case workflow bodies (custom_uc_workflow kind). Use when the user has edited `spec/architecture.yml` and wants the loop closed (render → seed → agent → re-render).
 ---
 
-# /aac-apply
+# /archascode:apply
 
 Close the **render → implement → re-render** loop for an archascode consuming
 project. On invocation:
@@ -25,9 +25,10 @@ that decides when to spawn agents.
 
 - `cwd` is a consuming project — it has `spec/architecture.yml`.
 - The user is logged in (`archascode login`).
-- The `archascode` CLI is available (`pnpm --filter archascode-cli build`
-  produces `apps/local/cli/dist/cli.mjs`; assume it's on PATH or invoke
-  via `node /<repo>/apps/local/cli/dist/cli.mjs`).
+- The `archascode` CLI is on the Bash PATH — the plugin's `bin/` provides it.
+  If `command -v archascode` fails, the plugin install is broken:
+  re-enable/reinstall per INSTALL.md and check the wrapper's executable bit
+  (`chmod +x <kit>/marketplace/plugins/archascode/bin/archascode`).
 
 If any precondition is missing, stop and report what's missing — don't try
 to install or start services on the user's behalf.
@@ -72,7 +73,7 @@ failure. Report `not logged in — run archascode login` and stop.
 Every render unconditionally writes `.env.example` at the project root
 (ADR 070 Decision 1) — true after Step 1 above, on every invocation. If a
 live `.env` does not exist yet, copy it once-ever, tracked by the same
-marker `/aac-init` used before this responsibility moved here:
+marker `/archascode:init` used before this responsibility moved here:
 
 ```bash
 mkdir -p .archascode
@@ -95,7 +96,7 @@ If `SEEDED_ENV=1` was printed, print exactly one line:
 ```
 
 Otherwise print **nothing** for this step — silent whether the marker
-was already set, or `.env` already existed. `/aac-apply`'s summary is
+was already set, or `.env` already existed. `/archascode:apply`'s summary is
 already dense (a line per hand-off); this step must never add noise on
 the common case where there is nothing to do.
 
@@ -327,7 +328,7 @@ Print, in order:
 - Final line, exactly:
 
   ```
-  Done. Next: /aac-seed to populate data, or use the plugin's API Explorer to drive the app.
+  Done. Next: /archascode:seed to populate data, or use the plugin's API Explorer to drive the app.
   ```
 
 Exit non-zero if any item is still pending.
@@ -540,7 +541,7 @@ Constraints:
 - Edit ONLY the file listed above.
 - Do not change the function name or signature.
 - Remove the seed marker comment (`# archascode: seeded by jwt_bearer
-  adapter renderer`) so /aac-apply doesn't re-dispatch this hand-off
+  adapter renderer`) so /archascode:apply doesn't re-dispatch this hand-off
   next time.
 - Save the file when done.
 ```
@@ -592,7 +593,7 @@ Context to read:
 Implementation rules:
 - Remove the stub-marker comment line (``# archascode: entity-method body
   stub — remove this line when you implement``) as part of implementing the
-  body. ``/aac-apply`` treats an overlay still carrying that line as
+  body. ``/archascode:apply`` treats an overlay still carrying that line as
   unresolved and will re-dispatch this hand-off (ADR 040), so leaving it in
   loops the loop.
 - Do not import the entity type at module top — only use it via the
@@ -657,7 +658,7 @@ Context to read:
 Implementation rules:
 - Remove the stub-marker comment line
   (``# archascode: custom-port adapter method stub — remove this line when you implement``)
-  from **each** method you implement. ``/aac-apply`` treats an overlay where
+  from **each** method you implement. ``/archascode:apply`` treats an overlay where
   **any** method still carries that line as unresolved and will re-dispatch
   this hand-off (ADR 042), so leaving the marker in loops the loop. A
   method you leave unimplemented (still raises ``NotImplementedError``) must
@@ -752,7 +753,7 @@ Context to read:
 Implementation rules:
 - Remove the stub-marker comment line
   (``# archascode: custom use-case workflow body stub — remove this line when you implement``)
-  when you implement the body. ``/aac-apply`` treats an overlay still
+  when you implement the body. ``/archascode:apply`` treats an overlay still
   carrying that line as unresolved and will re-dispatch this hand-off
   (ADR 043), so leaving the marker in loops the loop.
 - Call each depended-on port through its port interface — use
@@ -823,7 +824,7 @@ Context to read:
 Implementation rules:
 - Remove the stub-marker comment line
   (``# archascode: domain-service function body stub — remove this line when you implement``)
-  from **each** function you implement. ``/aac-apply`` treats an overlay
+  from **each** function you implement. ``/archascode:apply`` treats an overlay
   where **any** function still carries that line as unresolved and will
   re-dispatch this hand-off (ADR 046 Decision #3), so leaving the marker
   in loops the loop. A function you leave unimplemented (still raises
