@@ -1,7 +1,7 @@
 # archascode — installation
 
 Welcome to the archascode invite-only evaluation. archascode ships as a
-Claude Code plugin (skills + CLI) and a VS Code/Cursor extension, both
+Claude Code plugin (skills + CLI) and a Cursor/VS Code extension, both
 distributed from the `ArchAsCode-org/marketplace` GitHub repository. Use
 is covered by the bundled `LICENSE.txt`.
 
@@ -10,7 +10,7 @@ is covered by the bundled `LICENSE.txt`.
 - **Node.js 20+**
 - **uv** (the Python package manager — <https://docs.astral.sh/uv/>)
 - **Claude Code**
-- **VS Code or Cursor**
+- **Cursor or VS Code**
 - **Docker** — only needed for `sqlserver` environments; skip it for the
   in-memory first run
 - **A provisioned archascode account** — you'll have received credentials
@@ -41,10 +41,10 @@ Download `archascode-plugin.vsix` from the repository (open the file on
 GitHub and use "Download raw file"), then:
 
 ```
-code --install-extension archascode-plugin.vsix
+cursor --install-extension archascode-plugin.vsix
 ```
 
-(or `cursor --install-extension archascode-plugin.vsix` for Cursor.)
+(or `code --install-extension archascode-plugin.vsix` for VS Code.)
 Reload the editor window afterwards.
 
 ## 4. Log in
@@ -83,10 +83,11 @@ names, in order:
 1. `/archascode:analyze` — draft `spec/architecture.yml` from your PRD
 2. `/archascode:init` — set up the project environment
 3. `/archascode:apply` — render and resolve hand-offs
-4. `aac up` — serve the API locally
+4. `/archascode:seed` — to seed your rendered model 
 
-Open the spec in VS Code/Cursor to see the architecture graph (the
+Open the spec in Cursor/VS Code to see the architecture graph (the
 extension renders `spec/architecture.yml`).
+From inside the plugin, you can run API Explorer to see launch and explore the API.
 
 ## 6. Updating
 
