@@ -12,32 +12,60 @@ import { parseArgs } from "node:util";
 import { readFile as readFile4, readdir as readdir2 } from "node:fs/promises";
 import * as path6 from "node:path";
 
+// ../../../packages/core/src/version.ts
+var ARCHASCODE_VERSION = "0.3.0";
+
 // ../../../packages/core/src/client.ts
 var CloudRequestError = class extends Error {
-  constructor(message, status) {
+  constructor(message, status, problem) {
     super(message);
     this.status = status;
+    this.problem = problem;
     this.name = "CloudRequestError";
   }
 };
-async function postRender(cloudUrl, req, fetcher = fetch, authToken) {
+async function postRender(cloudUrl, req, fetcher = fetch, authToken, clientSurface = "core") {
   const url = new URL("/render", cloudUrl);
   const res = await fetcher(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      "x-archascode-client": `${clientSurface}/${ARCHASCODE_VERSION}`,
       ...authToken ? { authorization: `Bearer ${authToken}` } : {}
     },
     body: JSON.stringify(req)
   });
   if (!res.ok) {
     const detail = await safeReadText(res);
-    throw new CloudRequestError(
-      `cloud /render returned ${res.status} ${res.statusText}${detail ? `: ${detail}` : ""}`,
-      res.status
-    );
+    const problem = parseProblem(detail);
+    const messageDetail = problem ? `${problem.title ?? "problem"} \u2014 ${problem.detail ?? ""}` : detail ? `: ${detail}` : "";
+    const message = problem ? `cloud /render returned ${res.status} ${res.statusText}: ${messageDetail}` : `cloud /render returned ${res.status} ${res.statusText}${messageDetail}`;
+    throw new CloudRequestError(message, res.status, problem);
   }
   return await res.json();
+}
+function parseProblem(detail) {
+  let parsed;
+  try {
+    parsed = JSON.parse(detail);
+  } catch {
+    return void 0;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return void 0;
+  }
+  const obj = parsed;
+  const hasTitle = typeof obj["title"] === "string";
+  const hasDetail = typeof obj["detail"] === "string";
+  if (!hasTitle && !hasDetail) {
+    return void 0;
+  }
+  const problem = {};
+  if (typeof obj["type"] === "string") problem.type = obj["type"];
+  if (hasTitle) problem.title = obj["title"];
+  if (typeof obj["status"] === "number") problem.status = obj["status"];
+  if (hasDetail) problem.detail = obj["detail"];
+  return problem;
 }
 async function safeReadText(res) {
   try {
@@ -334,7 +362,8 @@ async function render(opts) {
       prior_migrations: priorMigrations
     },
     opts.fetcher,
-    opts.authToken
+    opts.authToken,
+    opts.clientSurface
   );
   if (response.errors.length > 0) {
     return { ok: false, errors: response.errors };
@@ -387,6 +416,12 @@ async function render(opts) {
       );
     }
   }
+  if (compareSemverTuples(parseSemverLoose(ARCHASCODE_VERSION), parseSemverLoose(response.server_version)) < 0) {
+    const remediation = opts.clientSurface === "plugin" ? "update: reinstall archascode-plugin.vsix from the updated invite kit (a marketplace update alone does not update the editor extension)." : "update: run `/plugin marketplace update archascode`, then `/reload-plugins`.";
+    warnings.push(
+      `archascode ${ARCHASCODE_VERSION} is behind the cloud service (${response.server_version}) \u2014 ${remediation}`
+    );
+  }
   const environments = buildEnvironments(response.environments);
   const defaultEnvironment = response.default_environment;
   const nextTombstone = [.../* @__PURE__ */ new Set([...priorTombstone, ...seededOnceEverPaths])];
@@ -397,6 +432,10 @@ async function render(opts) {
     renderedAt: now.toISOString(),
     specPath: path6.resolve(opts.specPath),
     files: trackedPaths,
+    renderedBy: {
+      client: ARCHASCODE_VERSION,
+      ...response.server_version ? { server: response.server_version } : {}
+    },
     ...nextTombstone.length > 0 ? { seededOnceEver: nextTombstone } : {},
     ...inflightSlug !== null ? {
       schema: {
@@ -438,6 +477,18 @@ async function readPriorMigrations(outDir) {
 }
 function isNotFound4(err) {
   return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
+}
+function parseSemverLoose(s) {
+  const match = s ? /^(\d+)\.(\d+)\.(\d+)$/.exec(s) : null;
+  if (!match) return [0, 0, 0];
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+function compareSemverTuples(a, b) {
+  for (let i = 0; i < 3; i++) {
+    const diff = a[i] - b[i];
+    if (diff !== 0) return diff;
+  }
+  return 0;
 }
 function buildEnvironments(entries) {
   if (!entries || entries.length === 0) return void 0;
@@ -1456,6 +1507,7 @@ Usage:
   archascode db plan  --env <name> [--out <dir>] [--plan-out <file>] [--up-to <bound>]
   archascode db apply --env <name> [--out <dir>] [--baseline-existing-target] [--up-to <bound>]
   archascode clean [--out <dir>] [--yes] [--json] [--hard]
+  archascode --version
 
 Arguments:
   <spec-path>         Path to architecture.yml (default ${DEFAULT_SPEC_PATH})
@@ -1512,6 +1564,7 @@ Options:
   -y, --yes           Skip the confirmation prompt (clean). For scripted
                       and skill-driven use.
   -h, --help          Show this message
+  -V, --version       Print the archascode version and exit
 
 login / logout \u2014 archascode cloud accounts are invite-only: an operator
            creates your user via \`admin-create-user\`. By default, \`login\`
@@ -1567,7 +1620,8 @@ async function main(argv) {
         "up-to": { type: "string" },
         yes: { type: "boolean", short: "y", default: false },
         hard: { type: "boolean", default: false },
-        help: { type: "boolean", short: "h", default: false }
+        help: { type: "boolean", short: "h", default: false },
+        version: { type: "boolean", short: "V", default: false }
       },
       allowPositionals: true
     });
@@ -1580,6 +1634,11 @@ ${USAGE}`);
   const { values, positionals } = parsed;
   if (values.help) {
     process.stdout.write(USAGE);
+    return 0;
+  }
+  if (values.version) {
+    process.stdout.write(`archascode ${ARCHASCODE_VERSION}
+`);
     return 0;
   }
   const [command, ...rest] = positionals;
@@ -1652,12 +1711,16 @@ ${USAGE}` : `render: spec not found at ${specPath}
       specPath,
       outDir,
       cloudUrl,
+      clientSurface: "cli",
       ...authToken !== void 0 ? { authToken } : {}
     });
   } catch (err) {
     let msg = `render failed: ${err.message}`;
     if (err instanceof CloudRequestError && err.status === 401) {
       msg += "\nhint: run `archascode login`";
+    }
+    if (err instanceof CloudRequestError && err.status === 426) {
+      msg += "\nhint: update your archascode install \u2014 run `/plugin marketplace update archascode`, then `/reload-plugins`";
     }
     if (wantJson) {
       process.stdout.write(
