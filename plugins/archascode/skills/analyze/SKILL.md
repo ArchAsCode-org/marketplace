@@ -17,11 +17,12 @@ hand" hole between greenfield and `/archascode:init`:
 ```
 
 The skill produces **two artifacts of equal standing**: the spec, and a
-coverage report (`spec/analysis.md`) that maps every PRD requirement to
-a spec construct, a documented assumption, or a named gap. A PRD always
-contains requirements the spec language cannot express (RBAC matrices,
-audit trails, NFRs, import UX); the report is what keeps the first pass
-honest about what it covered.
+coverage report (`spec/analysis.md`) that gives every PRD requirement
+exactly one disposition — mapped, assumption, deferred, or out of scope.
+A PRD always carries requirements the spec language can't express (RBAC
+matrices, audit trails, NFRs, import UX) and others whose behavior lands
+in a hand-off body rather than a spec node; the report is what keeps the
+first pass honest about which is which.
 
 Validation is authoritative and side-effect-free: the skill runs
 `archascode render --out <scratch> --json` against a throwaway
@@ -88,7 +89,7 @@ what's missing — report it, don't try to install or start services.
 ```
 spec/
 ├── architecture.yml   # first-pass spec, validated by a scratch render
-└── analysis.md        # coverage report: requirement map, assumptions, gaps
+└── analysis.md        # coverage report: requirement map, assumptions, deferred
 ```
 
 Nothing else. No `src/`, no manifest, no lockfile — validation renders
@@ -193,13 +194,15 @@ creates hand-off obligations that `/archascode:apply` fills later; that is
 expected, but every speculative one dilutes the first pass, so when in
 doubt it goes in the report as a *candidate*, not in the spec.
 
-**Route to the report (unexpressible):** authentication *mechanics*
-(sessions, password reset), role-based permission matrices, audit
-history, soft-delete semantics, import/export UX, dashboards beyond a
-data read, NFRs, browser/deployment requirements. Defensible
-approximations are allowed — e.g. a polymorphic "linked to X or Y or
-Z" becomes N optional `many-to-one` relationships — but every
-approximation is recorded in the report as an assumption.
+**Route to the report:** authentication *mechanics* (sessions, password
+reset), role-based permission matrices, audit history, soft-delete
+semantics, import/export UX, dashboards beyond a data read, NFRs,
+browser/deployment requirements. Sort these as you go — `deferred` when
+something downstream resolves it (a hand-off body, adapter config,
+`/archascode:wire`), `out of scope` when the PRD itself declared it a
+non-goal. Defensible approximations are allowed — e.g. a polymorphic
+"linked to X or Y or Z" becomes N optional `many-to-one` relationships —
+but every approximation is recorded as an `assumption`.
 
 If the PRD yields no identifiable entities, stop and say so rather
 than fabricating a domain.
@@ -461,31 +464,156 @@ Source: <prd-path> · Drafted: <date> · By: /archascode:analyze
 | PRD requirement | Disposition | Where / why |
 |---|---|---|
 | <section/req> | mapped | `domain.entities.X`, `JobStatus` enum |
-| <section/req> | assumption | <the approximation and its rationale> |
-| <section/req> | gap | <why the spec can't express it; suggested home> |
+| <section/req> | assumption | <the approximation, in one clause> |
+| <section/req> | deferred | <what resolves it> |
+| <section/req> | out of scope | <the PRD's own non-goal / scope note> |
 
-## Assumptions
-- <every non-obvious modeling choice, --context text verbatim, clarifying answers>
+## Assumptions made (re-run analyze with --interactive to explore other options on any)
+- **<the choice>** — <one line of why>
 
-## Gaps (not expressible in architecture.yml)
-- <requirement> — <suggested home: hand-off body, future custom UC, app code, ops>
+## Deferred
+| Requirement | Resolved by |
+|---|---|
+| <requirement> | <hand-off body, adapter config, `/archascode:wire`, app code> |
 
 ## PRD open questions (carried forward)
-- <verbatim from the PRD, plus any the analysis surfaced>
+| # | Question | This draft |
+|---|---|---|
+| 1 | <verbatim from the PRD> | <the default applied, and its cost> |
 
 ## Next steps
 /archascode:init → /archascode:apply (N pending hand-offs) → /archascode:seed → aac.py up
 Persistence: memory (by omission) — run /archascode:wire persistence when ready for a real database.
 ```
 
-Every PRD functional requirement appears in the map exactly once —
-the table is the completeness check on the analysis itself.
+**Disposition is one of exactly four values**, each pointing at one
+downstream section:
+
+- `mapped` — expressed as a spec construct. Cite it; no prose.
+- `assumption` — mapped via an approximation the PRD didn't dictate.
+  Gets an Assumptions bullet.
+- `deferred` — the intent is in the spec, the behavior lands elsewhere
+  (a hand-off body, adapter config, wiring). Gets a Deferred row.
+- `out of scope` — the PRD declared it a non-goal or out of scope. Cite
+  the section; nothing further is owed.
+
+Every PRD functional requirement appears in the map exactly once — the
+table is the completeness check on the analysis itself.
+
+**Write each fact once.** The map is the index; the three sections below
+it add only what a table cell can't hold. Specifically:
+
+- A `deferred` row's destination lives in the Deferred table, not also
+  in Assumptions.
+- Anything traceable to a PRD open question lives **only** in the open-
+  questions table — Assumptions doesn't restate the same resolution.
+- `out of scope` rows get **no** Deferred entry. A non-goal is not
+  something the spec failed to express; listing it as unfinished
+  business misreports the PRD.
+- Assumptions bullets state the choice and, where it isn't obvious, what
+  it means in practice. They do **not** justify it. When a rationale
+  feels necessary, it belongs in the open-questions table's "This draft"
+  cell, where the consequence is load-bearing.
+
+The report is a decision record, not a narrative. Prefer a table row to
+a paragraph, a citation to an explanation, and one clause to three.
+
+**Every citation is read back from the drafted spec, never recalled from
+intent.** The report is written after Step 5, so the spec on disk — not
+your memory of what you meant to write — is the source for every route
+path, key name, enum value, attribute name, default, and hand-off target
+the report mentions. Before writing a row that names one, confirm it:
+
+```bash
+grep -nE '^\s{6}[a-z_]+:' spec/architecture.yml         # attribute / key names
+grep -rn 'APIRouter(prefix=' "$SCRATCH"/src/api/routers/ # resolved route prefixes
+```
+
+Route paths are the one thing the spec alone does not settle — a
+declared `http.path` is a suffix under a router prefix (see below), so
+read the rendered router, not the spec key.
+
+A wrong citation is worse than a vague one — the reader trusts the report
+as a map of the spec. Never state a path the spec doesn't contain, and
+never build an Assumptions bullet on a detail you have not just verified.
+When the drafted spec and your intent disagree, the spec is what shipped:
+report it, or go fix the spec and re-render.
+
+**A custom use case's route is its group prefix + its `http.path`, not
+the bare `path`.** Per ADR 041, `application.use_cases.<UC>.group` picks
+the router: a declared entity name mounts the route under that entity's
+resource path, and an absent or `Application` group mounts it under the
+reserved `/application` prefix. So `group` unset with `http: {method:
+GET, path: /dashboard}` serves `GET /application/dashboard` — the prefix
+is real, not an artifact. Cite the resolved path, and confirm it in the
+scratch render's `src/api/routers/` output rather than reading `http.path`
+alone:
+
+```bash
+grep -rn 'APIRouter(prefix=' "$SCRATCH"/src/api/routers/
+```
+
+Set `group: <Entity>` when a route belongs under an entity; leave it
+unset for a standalone application-level read.
+
+**Write for the product reader, not the engine implementer.** The
+audience is whoever owns the PRD — they need to know what the spec
+decided and what it costs them, not how the engine works. Concretely:
+
+- **State the consequence, not the mechanism.** "Deleting a company that
+  has activities will be refused" — not the cascade-path rule, the
+  vendor error number, or the topology that forced it.
+- **No rendered code, no emitted SQL, no engine internals** in the report
+  body. If a limitation was found by reading generated output, report the
+  observable behavior ("the API currently accepts an activity linked to
+  nothing, or to two things at once") and skip the derivation.
+- **No methodology.** What was probed, which expression forms were tried,
+  and how many render passes it took are session detail, not findings.
+  The summary line in Step 7 carries the pass count; the report doesn't.
+- **Skip the tuning arithmetic.** Cite a chosen value plainly
+  (`Money`: 2 decimal places, max ~12 digits) without deriving the
+  ceiling or defending the convention.
+- Spec keys, entity names, enum values, and hand-off kinds are fine —
+  they're the shared vocabulary. It's the *engine's* implementation
+  details that stay out.
+
+No section opens with a status preamble — no render-pass counts, no
+flag-state recap, no "persistence is memory by omission" (Next steps
+already says it). The title block is the source line and nothing more.
+
+**State assumptions flatly; assign no blame.** An assumption is a
+decision the reader may want to change, so it needs to be legible — not
+defended, and not attributed to a shortcoming in the spec language, the
+engine, or the PRD. In particular, never explain a modeling choice by
+what the language *lacks*: "the spec has no subtyping mechanism", "there
+is no single-target-of-three reference", "the language can't express
+this". Such phrasing reads as the tool excusing itself, and it goes stale
+the moment the language gains the feature.
+
+Say what was done, and where it isn't self-evident, what it means in
+practice:
+
+- ✗ "Task-only fields live on every activity. The spec has no subtyping
+  mechanism, and dropping them would lose FR-6."
+- ✓ "Task-only fields live on every activity — due date and completion
+  flag are optional on all five types, so a Note may carry a due date."
+
+- ✗ "Modeled as three independent optional references. The spec language
+  has no single-target-of-three reference, so exclusivity becomes a
+  separate constraint rather than part of the shape."
+- ✓ "An activity's subject is three optional references, one per target
+  type. Exactly-one is a separate constraint — see Deferred."
+
+The same restraint applies to the open-questions table and the Deferred
+table: give the reader the decision and its cost, not the constraint
+that produced it. A `Resolved by` cell names a destination; it does not
+argue.
 
 ### Step 7 — summarize
 
 ```
 ✓ spec/architecture.yml — E entities, R relationships, N enums, V value objects, M methods (validated in K render pass(es))
-✓ spec/analysis.md — X requirements mapped, Y assumptions, Z gaps (A load-bearing forks resolved by default — see Assumptions)
+✓ spec/analysis.md — X requirements: M mapped, Y assumptions, Z deferred, S out of scope (A load-bearing forks resolved by default — see Assumptions)
 Next: /archascode:init, then /archascode:apply (P hand-offs pending)
 Persistence: memory (by omission) — /archascode:wire persistence when ready
 ```
@@ -510,7 +638,7 @@ were asked, not defaulted).
   architecture.yml" mode is a future version; today an existing spec
   triggers the overwrite prompt.
 - **Modify the PRD.** Read-only input, always.
-- **Silently approximate.** Every approximation and every unexpressible
+- **Silently approximate.** Every approximation and every deferred
   requirement is in the report; the spec never quietly narrows the PRD.
 
 ## Failure modes (v1)

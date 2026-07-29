@@ -13,7 +13,7 @@ import { readFile as readFile4, readdir as readdir2 } from "node:fs/promises";
 import * as path6 from "node:path";
 
 // ../../../packages/core/src/version.ts
-var ARCHASCODE_VERSION = "0.3.0";
+var ARCHASCODE_VERSION = "0.3.1";
 
 // ../../../packages/core/src/client.ts
 var CloudRequestError = class extends Error {
