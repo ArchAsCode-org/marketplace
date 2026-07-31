@@ -26,37 +26,67 @@ From any Claude Code session, run these two commands **one at a time**:
 /plugin install archascode@archascode
 ```
 
-Choose **user scope** ("Install for you") when prompted. Then restart the
-Claude Code session — plugin skills and the CLI load at session start.
+Choose **user scope** ("Install for you") when prompted.
 
 That installs the ten skills (`analyze`, `init`, `apply`, `seed`, `wire`,
 `clean`, `cut-schema-migration`, `db`, `login`, `logout`) and puts the
 `archascode` CLI on the Claude Code Bash tool's PATH.
 
+**Quit Claude Code and start it again before using any of them** — skills
+are loaded once, at session start, so they are not available in the
+session you just installed from.
+
 ## 3. Install the editor extension
 
-Download `archascode-plugin.vsix` from the repository (open the file on
-GitHub and use "Download raw file"), then:
+First download the `.vsix`:
 
-```
-cursor --install-extension archascode-plugin.vsix
+<https://github.com/ArchAsCode-org/marketplace/raw/main/archascode-plugin.vsix>
+
+It lands in your usual downloads folder. Then install it from the editor
+UI — no terminal needed:
+
+1. Open Cursor (or VS Code).
+2. Open the Command Palette — `Cmd+Shift+P` (`Ctrl+Shift+P` on
+   Windows/Linux).
+3. Type `vsix` and choose **"Extensions: Install from VSIX..."**
+4. Select the `archascode-plugin.vsix` you just downloaded.
+
+Reload the editor window afterwards (`Cmd+Shift+P` → "Reload Window").
+
+<details>
+<summary>Prefer the command line?</summary>
+
+If you've installed the `cursor` (or `code`) shell command, you can
+install from a terminal instead — pass the real path to the download:
+
+```sh
+cursor --install-extension ~/Downloads/archascode-plugin.vsix
 ```
 
-(or `code --install-extension archascode-plugin.vsix` for VS Code.)
-Reload the editor window afterwards.
+That command only exists if you've run **"Shell Command: Install 'cursor'
+command in PATH"** from the Command Palette (`Cmd+Shift+P`); it is not on
+your PATH by default. The UI steps above need no such setup.
+
+</details>
 
 ## 4. Log in
 
-From your Claude Code session, ask to log in:
+**Quit Claude Code and start it again to load new skills.** Skills are loaded once, at
+session start, so a session that was already running when you installed
+the plugin in step 2 has no `/archascode:` commands in it — reloading the
+editor window in step 3 does not reload them. If `/archascode:login`
+below isn't recognised, this is why.
+
+Then, from your Claude Code session:
 
 ```
 /archascode:login
 ```
 
 (or just tell Claude Code "log me in to archascode"). This opens your
-system browser at the sign-in page — enter the credentials you received.
-On first login you'll be asked to set a new password there, in the
-browser.
+system browser at the sign-in page — enter the username and temporary
+password from your invite email. On first login you'll be asked to set a
+new password there, in the browser.
 
 **Optional (but recommended): put the CLI on your shell PATH.** The plugin's `bin/`
 directory is on the *Claude Code Bash tool's* PATH, not your shell PATH.
@@ -84,7 +114,9 @@ whole loop before you point it at your own work:
 git clone https://github.com/ArchAsCode-org/tutorial-crm-lite
 ```
 
-Open the clone in Cursor/VS Code and follow its `README.md`.
+Open the clone in Cursor/VS Code, and follow the instructions in the
+README — best viewed in a browser, where the screenshots render:
+[github.com/ArchAsCode-org/tutorial-crm-lite](https://github.com/ArchAsCode-org/tutorial-crm-lite/blob/main/README.md)
 
 ## 6. Applying to your project
 
