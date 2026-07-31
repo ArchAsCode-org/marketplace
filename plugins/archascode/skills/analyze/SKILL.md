@@ -13,7 +13,7 @@ hand" hole between greenfield and `/archascode:init`:
 /archascode:analyze <prd.md>  →  spec/architecture.yml + spec/analysis.md
 /archascode:init              →  pyproject.toml + .venv matching the spec
 /archascode:apply             →  render + hand-off dispatch
-/archascode:seed → aac.py up
+/archascode:seed → API Explorer
 ```
 
 The skill produces **two artifacts of equal standing**: the spec, and a
@@ -482,7 +482,7 @@ Source: <prd-path> · Drafted: <date> · By: /archascode:analyze
 | 1 | <verbatim from the PRD> | <the default applied, and its cost> |
 
 ## Next steps
-/archascode:init → /archascode:apply (N pending hand-offs) → /archascode:seed → aac.py up
+/archascode:init → /archascode:apply (N pending hand-offs) → /archascode:seed → API Explorer
 Persistence: memory (by omission) — run /archascode:wire persistence when ready for a real database.
 ```
 

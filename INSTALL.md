@@ -11,8 +11,6 @@ is covered by the bundled `LICENSE.txt`.
 - **uv** (the Python package manager — <https://docs.astral.sh/uv/>)
 - **Claude Code**
 - **Cursor or VS Code**
-- **Docker** — only needed for `sqlserver` environments; skip it for the
-  in-memory first run
 - **A provisioned archascode account** — you'll have received credentials
   separately
 
@@ -60,7 +58,7 @@ system browser at the sign-in page — enter the credentials you received.
 On first login you'll be asked to set a new password there, in the
 browser.
 
-**Optional: put the CLI on your shell PATH.** The plugin's `bin/`
+**Optional (but recommended): put the CLI on your shell PATH.** The plugin's `bin/`
 directory is on the *Claude Code Bash tool's* PATH, not your shell PATH.
 If you'd like to run `archascode` commands directly from a terminal too,
 link it once — the target path is stable across plugin updates:
@@ -75,7 +73,20 @@ is, or create `~/.local/bin` and add it to your PATH.
 On SSH/headless machines, the browser flow can't reach your machine —
 run `archascode login --password` in a real terminal instead.
 
-## 5. First run
+## 5. Do the tutorial
+
+Start with the CRM-lite tutorial. It takes a realistic PRD to a running
+FastAPI app in about 15–20 minutes, then iterates it twice — once through
+the visual editor, once through natural language — so you've seen the
+whole loop before you point it at your own work:
+
+```sh
+git clone https://github.com/ArchAsCode-org/tutorial-crm-lite
+```
+
+Open the clone in Cursor/VS Code and follow its `README.md`.
+
+## 6. Applying to your project
 
 From your project in Claude Code, run the skills by their namespaced
 names, in order:
@@ -89,7 +100,7 @@ Open the spec in Cursor/VS Code to see the architecture graph (the
 extension renders `spec/architecture.yml`).
 From inside the plugin, you can run API Explorer to see launch and explore the API.
 
-## 6. Updating
+## 7. Updating
 
 When a new version is announced, from any Claude Code session:
 

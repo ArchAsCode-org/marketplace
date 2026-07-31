@@ -12,9 +12,9 @@ infra HOW (adapters, environments — not derivable from any PRD). This
 skill owns the second stratum, as an interview:
 
 ```
-/archascode:analyze → /archascode:init → /archascode:apply → /archascode:seed → aac up   # act one: memory, zero infra questions
+/archascode:analyze → /archascode:init → /archascode:apply → /archascode:seed → API Explorer   # act one: memory, zero infra questions
 /archascode:wire persistence                                        # act two: make it real
-/archascode:init → /archascode:apply → cp .env.docker.example .env.docker → aac up --env docker
+/archascode:init → /archascode:apply → cp .env.docker.example .env.docker → API Explorer (env: docker)
 ```
 
 The skill edits `spec/architecture.yml` only — additively, via the same
@@ -253,7 +253,7 @@ Next:
 1. /archascode:init                       # adapter set changed → pymssql
 2. /archascode:apply                      # render: docker-compose.yml, schema DDL, sqlserver adapters
 3. cp .env.docker.example .env.docker     # DB_USER=sa already set
-4. aac up --env docker                    # ephemeral: up owns the schema (ADR 052)
+4. API Explorer → select env 'docker'     # ephemeral: start owns the schema (ADR 052)
 ```
 
 When a protected env was created, append its branch:

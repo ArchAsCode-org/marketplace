@@ -310,7 +310,7 @@ Followed by a totals line and a hint:
 
 ```
 Wrote N records across M entities → snapshots/
-Next: POST /admin/snapshot/load (or restart aac.py up to autoload)
+Next: POST /admin/snapshot/load (or restart the API from the API Explorer to autoload)
 ```
 
 ## What this skill does NOT do

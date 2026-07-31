@@ -245,7 +245,7 @@ Then print one line:
 Then, if `ENV_SCAFFOLDED=1` appeared in `PY_OUT`, print:
 
 ```
-✓ added default 'dev' environment (memory, no auth) — architecture.yml updated; run 'aac up --env dev' once rendered
+✓ added default 'dev' environment (memory, no auth) — architecture.yml updated; select 'dev' in the API Explorer to start it once rendered
 ```
 
 If `ENV_SCAFFOLDED=0` (or `spec/architecture.yml` doesn't exist yet — the
@@ -352,7 +352,7 @@ Print one line per step that did work, then a mode-aware final line.
 If `aac.py` exists:
 
 ```
-Done. Next: run `aac.py up`, or `/archascode:seed` to populate data first
+Done. Next: start the API from the API Explorer, or `/archascode:seed` to populate data first
 ```
 
 Else if `spec/architecture.yml` exists:
