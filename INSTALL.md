@@ -11,8 +11,8 @@ is covered by the bundled `LICENSE.txt`.
 - **uv** (the Python package manager — <https://docs.astral.sh/uv/>)
 - **Claude Code**
 - **Cursor or VS Code**
-- **A provisioned archascode account** — you'll have received credentials
-  separately
+- **A provisioned archascode account** — your username and a temporary
+  password are in the invite email that linked you here
 
 ## 2. Install the Claude Code plugin
 
