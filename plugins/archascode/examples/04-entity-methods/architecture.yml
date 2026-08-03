@@ -1,0 +1,54 @@
+schema_version: "1.0"
+metadata:
+  name: methods-demo
+  description: Minimal fixture exercising all entity-method shapes from ADR 039
+  version: 0.1.0
+domain:
+  entities:
+    Product:
+      attributes:
+        id:
+          type: UUID
+          identity: true
+          generated: true
+        is_discontinued:
+          type: bool
+          required: true
+        price:
+          type: str
+          required: true
+        created_at:
+          type: datetime
+          generated: true
+        updated_at:
+          type: datetime
+          generated: true
+      methods:
+        mark_discontinued:
+          description: Mark the product as discontinued.
+          locked: true
+          mutable: true
+          use_case:
+            workflow:
+              - Update is_discontinued to be true
+          depends_on_attributes:
+            - is_discontinued
+        domain_method:
+          description: A non-promoted domain-only method.
+          mutable: true
+        custom_use_case_method:
+          description: Promoted method with explicit use_case config.
+          mutable: true
+          use_case:
+            workflow:
+              - Say hello
+        query_method:
+          description: Non-mutable promoted query.
+          mutable: false
+          returns: str
+          parameters:
+            reason: str
+          use_case:
+            auth: required
+api:
+  base_path: ""

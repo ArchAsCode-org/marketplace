@@ -71,7 +71,7 @@ your PATH by default. The UI steps above need no such setup.
 
 ## 4. Log in
 
-**Quit Claude Code and start it again to load new skills.** Skills are loaded once, at
+**Quit Claude Code and start it again first.** Skills are loaded once, at
 session start, so a session that was already running when you installed
 the plugin in step 2 has no `/archascode:` commands in it — reloading the
 editor window in step 3 does not reload them. If `/archascode:login`

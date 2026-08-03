@@ -49,8 +49,8 @@ archascode cut-schema-migration [--name "$ARGUMENTS"] --json
 
 Parse the single line of JSON on stdout:
 
-- `{ "ok": true, "producedFilename": "<file>" }` (exit 0) — print
-  `cut migration <file>` and stop.
+- `{ "ok": true, "producedFilenames": ["<file>", …] }` (exit 0) — print
+  `cut migration <files>` (the produced filenames, joined by `, `) and stop.
 - `{ "ok": false, "reason": "<reason>", "message": "<msg>" }` (exit 3)
   — print `<msg>` and stop. Common reasons: `no-inflight` (no pending
   changes), `missing-inflight-file` (project not rendered yet).

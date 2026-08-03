@@ -1,0 +1,143 @@
+schema_version: "1.0"
+
+metadata:
+  name: derived-attributes
+  description: >
+    ADR-074 fixture — exercises entity.derived_attributes end to end.
+    WorkOrder (sqlserver-declared, owns the many-to-one to Program so
+    program_id synthesizes per ADR-057) declares four base derived
+    attributes: total_hours (non-optional multi-field derivation over
+    design/build/test hours), overrun (optional-dependency derivation over
+    actual_hours, which is required: false — the D4 None-guard case),
+    linked_program_id (a derivation referencing the synthesized FK
+    program_id), and total_cost (typed as the constrained simple VO Money —
+    fires the D5 constraint-free DTO rule and enum/VO import threading
+    together). No stored attribute uses Money, so the import-threading
+    assertion is non-vacuous. An invariant (total_hours_non_negative)
+    references the derived total_hours, exercising the D6
+    invariant-over-derived layering. ADR-074 Amendment A1: WorkOrder also
+    declares a two-entry derived-on-derived chain — billable_overrun
+    (declared first, referencing overrun_cost) and overrun_cost (declaring
+    second, referencing overrun and hourly_rate) — extending the
+    actual_hours -> overrun -> overrun_cost -> billable_overrun chain with
+    two derived->derived edges, a forward reference (billable_overrun is
+    declared before its dependency overrun_cost), and transitive
+    optionality/None-propagation arriving only through the derived
+    intermediates.
+  version: "1.0.0"
+
+adapters:
+  persistence:
+    sqlserver:
+      env:
+        host: DB_HOST
+        port: DB_PORT:1433
+        database: DB_NAME
+        username: DB_USER
+        password: DB_PASSWORD
+
+environments:
+  dev:
+    port_binding: memory
+  prod:
+    port_binding: sqlserver
+    compute: external
+    data: protected
+
+default_environment: dev
+
+domain:
+  value_objects:
+    Money:
+      description: Monetary value with precision for currency amounts
+      type: Decimal
+      validation:
+        precision: 12
+        scale: 2
+        min: 0
+
+  entities:
+    Program:
+      description: Minimal parent entity so WorkOrder's FK column plans.
+      adapters:
+        sqlserver: {}
+      attributes:
+        id:
+          type: UUID
+          identity: true
+          generated: true
+        name:
+          type: str
+          required: true
+        created_at:
+          type: datetime
+          generated: true
+        updated_at:
+          type: datetime
+          generated: true
+
+    WorkOrder:
+      description: >
+        The sqlserver-declared, derived-attribute-bearing entity. Carries
+        the four derived attributes exercised by ADR-074's contracts.
+      adapters:
+        sqlserver: {}
+      attributes:
+        id:
+          type: UUID
+          identity: true
+          generated: true
+        design_hours:
+          type: decimal
+          required: true
+        build_hours:
+          type: decimal
+          required: true
+        test_hours:
+          type: decimal
+          required: true
+        hourly_rate:
+          type: decimal
+          required: true
+        estimated_hours:
+          type: decimal
+          required: true
+        actual_hours:
+          type: decimal
+          required: false
+        created_at:
+          type: datetime
+          generated: true
+        updated_at:
+          type: datetime
+          generated: true
+      relationships:
+        program:
+          entity: Program
+          cardinality: many-to-one
+      derived_attributes:
+        total_hours:
+          type: decimal
+          expression: design_hours + build_hours + test_hours
+          description: Total effort across all activities.
+        overrun:
+          type: decimal
+          expression: actual_hours - estimated_hours
+        linked_program_id:
+          type: UUID
+          expression: program_id
+        total_cost:
+          type: Money
+          expression: (design_hours + build_hours + test_hours) * hourly_rate
+        billable_overrun:
+          type: decimal
+          expression: overrun_cost * 2
+          description: Overrun cost with the standard 2x billing multiplier.
+        overrun_cost:
+          type: decimal
+          expression: overrun * hourly_rate
+      invariants:
+        total_hours_non_negative: total_hours >= 0
+
+api:
+  base_path: ""

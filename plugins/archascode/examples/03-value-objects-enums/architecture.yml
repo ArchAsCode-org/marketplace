@@ -1,0 +1,51 @@
+schema_version: "1.0"
+metadata:
+  name: value-objects-only
+  description: Single-entity tracer exercising simple VOs, composite VOs, and enums
+  version: 0.1.0
+domain:
+  value_objects:
+    Money:
+      description: Monetary value
+      type: Decimal
+      validation:
+        precision: 12
+        scale: 2
+        min: 0
+    Email:
+      description: Email address
+      type: str
+      pattern: "^[^@]+@[^@]+\\.[^@]+$"
+    Address:
+      description: Postal address
+      attributes:
+        street:
+          type: str
+        city:
+          type: str
+        postal_code:
+          type: str
+  enums:
+    OrderStatus:
+      description: Lifecycle of an order
+      values: [pending, paid, shipped, delivered, cancelled]
+  entities:
+    Invoice:
+      attributes:
+        id:
+          type: UUID
+          identity: true
+          generated: true
+        contact_email:
+          type: Email
+        total:
+          type: Money
+        billing_address:
+          type: Address
+        status:
+          type: OrderStatus
+        created_at:
+          type: datetime
+          generated: true
+api:
+  base_path: ""

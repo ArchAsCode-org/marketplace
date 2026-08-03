@@ -1,13 +1,14 @@
 ---
 name: analyze
-description: Analyze a PRD document and draft a first-pass spec/architecture.yml for an archascode consuming project — entities, relationships, enums, value objects, invariants, methods, and API posture — validated against the real engine via a scratch-dir render. Use at project start, when a PRD exists but spec/architecture.yml does not.
+description: Draft a first-pass spec/architecture.yml from a PRD document, add to or change an existing spec/architecture.yml, or answer "how would I model X in architecture.yml?" — entities, relationships, enums, value objects, invariants, methods, and API posture, validated against the real engine via archascode validate.
 ---
 
 # /archascode:analyze
 
-Turn a PRD into a first-pass `spec/architecture.yml`. This is the front
-door of the pipeline — it fills the "create spec/architecture.yml by
-hand" hole between greenfield and `/archascode:init`:
+Turn a PRD into a first-pass `spec/architecture.yml`, extend or edit an
+existing one, or answer a modeling question — this is the front door of
+the pipeline for spec authoring across the whole life of a project, not
+just its start:
 
 ```
 /archascode:analyze <prd.md>  →  spec/architecture.yml + spec/analysis.md
@@ -16,201 +17,95 @@ hand" hole between greenfield and `/archascode:init`:
 /archascode:seed → API Explorer
 ```
 
-The skill produces **two artifacts of equal standing**: the spec, and a
-coverage report (`spec/analysis.md`) that gives every PRD requirement
-exactly one disposition — mapped, assumption, deferred, or out of scope.
-A PRD always carries requirements the spec language can't express (RBAC
-matrices, audit trails, NFRs, import UX) and others whose behavior lands
-in a hand-off body rather than a spec node; the report is what keeps the
-first pass honest about which is which.
+In PRD mode the skill produces **two artifacts of equal standing**: the
+spec, and a coverage report (`spec/analysis.md`) that gives every PRD
+requirement exactly one disposition — mapped, assumption, deferred, or
+out of scope. A PRD always carries requirements the spec language can't
+express (RBAC matrices, audit trails, NFRs, import UX) and others whose
+behavior lands in a hand-off body rather than a spec node; the report is
+what keeps the first pass honest about which is which.
 
-Validation is authoritative and side-effect-free: the skill runs
-`archascode render --out <scratch> --json` against a throwaway
-directory. Every path render writes — rendered files,
-`.archascode/manifest.json`, `spec/locked/interfaces.lock`, once-ever
-seeds — resolves under `--out`, so the project tree receives exactly
-one file pair: the spec and the report. The scratch render exercises
-the full engine validation surface (jsonschema + Pydantic shape checks
-*and* planning-level checks like ADR-068 invariant resolution), which
-is strictly stronger than a schema lint.
+Validation is authoritative and side-effect-free: every mutating mode
+ends with `archascode validate`, which runs the full engine surface
+(jsonschema + Pydantic shape checks *and* planning-level checks like
+ADR-068 invariant resolution) against a throwaway directory the skill
+never names — strictly stronger than a schema lint, and nothing lands in
+the project tree but the spec (and, in PRD mode, the report). `validate`
+is a network call to the archascode cloud service, not a local lint —
+same auth precondition as every other verb below (`archascode login`).
 
-## Arguments
+## Mode dispatch
 
-- `<prd-path>` — required positional. Path to the PRD (markdown or
-  plain text). Invoking with no argument stops with:
-  `analyze-current-spec (no-arg) mode is not implemented yet — pass a PRD path.`
-- `--context <text>` — optional. Free-text steering merged into the
-  drafting step and recorded verbatim in the report's Assumptions
-  section, e.g. `"auth required everywhere"` or
-  `"treat Reporting as out of scope"`. When `--context` answers a
-  clarifying fork, the skill skips asking it.
-- `--interactive` — optional. Without it (the default), the skill never
-  stops to ask — every load-bearing fork resolves to its documented
-  default (see Step 2) and gets recorded as an assumption in the
-  report. This is the fast, demo-friendly path: one shot,
-  `architecture.yml` + `analysis.md`, no pauses. With it, the skill
-  asks about load-bearing forks as they're found in Step 2/3/4 —
-  auth posture, out-of-scope sections, and modeling forks like
-  exclusive-arc relationships or `on_delete` policy — each once, as
-  they come up, rather than deferring them all to the report.
+Decide the mode **before** doing anything else — this determines which
+part of the procedure below even applies:
 
-Invocation forms:
+| Invocation | Mode |
+|---|---|
+| Bare `/archascode:analyze`, no argument, no accompanying prose | Reserved critique stub — the existing hard-stop message (see Arguments) |
+| Any invocation carrying a natural-language modeling request (typed by the user, or supplied by the router on auto-invoke) | Question mode or incremental mode, per whether it asks or instructs |
+| A path argument | PRD mode (unchanged) |
 
-```
-/archascode:analyze docs/product_prd.md
-/archascode:analyze docs/product_prd.md --context "auth on; ignore the mobile app sections"
-/archascode:analyze docs/product_prd.md --interactive
-```
+**The dispatch key is the presence of a natural-language request, not the
+presence of a positional argument.** This matters because the reserved
+no-arg slot and a router auto-invoke both arrive with no `$1` — from
+inside the skill body alone they look identical. What distinguishes them
+is whether there is a modeling question or instruction to act on: none
+means the reserved stub; some means question or incremental mode.
 
-## Preconditions
+- **Question mode** — the user asks how to model something ("how would I
+  represent a many-to-many with extra fields?", "what's the invariant
+  syntax?"). Answer using the Authoring reference below. **Write
+  nothing unless asked** — this mode is read-only by default.
+- **Incremental mode** — the user instructs a change to the existing spec
+  ("add a `cancel` method to Order", "add an invariant that quantity is
+  positive", "make email optional on Contact"). Edit
+  `spec/architecture.yml` **in place**, then validate. See Incremental
+  mode below for the mechanism.
+- **PRD mode** — a path argument names a PRD document. Draft a fresh
+  `spec/architecture.yml` + `spec/analysis.md`. This is the original,
+  unchanged procedure — see Preconditions onward.
 
-- The PRD file exists and is readable text.
-- `cwd` is the consuming project root (the directory where `spec/`
-  belongs).
-- The `archascode` CLI is on the Bash PATH — the plugin's `bin/` provides
-  it. If `command -v archascode` fails, the plugin install is broken:
-  re-enable/reinstall per INSTALL.md and check the wrapper's executable
-  bit (`chmod +x <kit>/marketplace/plugins/archascode/bin/archascode`).
-- The user is logged in (`archascode login`).
-- `.venv` / `pyproject.toml` are **not** required. Analyze precedes
-  `/archascode:init`; render needs neither.
+### Question mode
 
-If `spec/architecture.yml` already exists, **stop and ask** before
-touching it. Offer: overwrite, write the draft to
-`spec/architecture.proposed.yml` instead, or cancel. Default to cancel
-in non-interactive contexts. An existing spec usually means the user
-wants the future critique mode, not a fresh draft.
+Answer from the Authoring reference (and the schema/examples it points
+at) directly in conversation. Do not create, edit, or validate any file
+unless the user's own request asks for a change — a question is a
+question, not an implicit edit instruction.
 
-If any other precondition fails, stop with a one-line message naming
-what's missing — report it, don't try to install or start services.
+### Incremental mode
 
-## What it produces
+An existing `spec/architecture.yml` is a hand-owned artifact — it carries
+comments, key ordering, and structure that a naive YAML load-and-dump
+would silently destroy. Edit it **in place using the same
+comment-preserving `ruamel.yaml` round-trip** `/archascode:init` already
+uses for its `environments:` scaffold — see
+`init/SKILL.md:114-140` for the exact `uv run --no-project --with
+'ruamel.yaml' python - <<'PY'` heredoc shape. Do not re-derive the
+mechanism; reuse it: read the spec once via `ruamel.yaml`'s round-trip
+loader, apply the requested change to the loaded object (add/edit the
+relevant node under `domain`, `application`, etc. — see the Authoring
+reference for shapes), and dump it back with the same `YAML()` instance
+so comments and ordering survive.
 
-```
-spec/
-├── architecture.yml   # first-pass spec, validated by a scratch render
-└── analysis.md        # coverage report: requirement map, assumptions, deferred
-```
-
-Nothing else. No `src/`, no manifest, no lockfile — validation renders
-go to a scratch directory that is deleted afterward.
-
-## Procedure
-
-### Step 1 — verify preconditions and read the PRD
+**Every mutating mode ends in a validation run:**
 
 ```bash
-test -f "$PRD_PATH" || { echo "PRD not found: $PRD_PATH"; exit 1; }
-command -v archascode >/dev/null 2>&1 || { echo "archascode CLI not on PATH — the plugin install is broken; re-enable/reinstall per INSTALL.md"; exit 1; }
-test -f spec/architecture.yml && echo "spec/architecture.yml exists — ask before proceeding"
+archascode validate spec/architecture.yml --json
 ```
 
-Read the PRD in full. Note its explicit open-questions section if it
-has one — those flow into the report verbatim.
+- `{"ok": true}` → report what changed, in one line per change.
+- `{"ok": false, "errors": [...]}` → read `errors`, fix the spec, re-run.
+  Cap at **5** iterations; if still red, stop, leave the edit in place,
+  and print the remaining errors verbatim.
+- Exit **2** → the command could not be attempted — either
+  `spec/architecture.yml` is missing, or the user is not logged in. Read
+  the stderr message rather than assuming which; report it and stop
+  (`archascode login` if it's the latter).
 
-### Step 2 — clarifying forks (load-bearing only)
+## Authoring reference
 
-The PRD will surface load-bearing forks — genuinely open questions
-where the spec language can't express the PRD's intent directly and
-more than one defensible modeling choice exists. Two are common enough
-to name up front; more turn up during Step 3/4 domain modeling
-(e.g. an exclusive-arc relationship, an `on_delete` policy under a
-"never hard-delete" constraint):
-
-1. **Auth posture** — does the app require authentication on its API?
-   (Most PRDs say; only open if silent or contradictory.)
-2. **Out-of-scope sections** — when the PRD mixes the buildable system
-   with clearly separate concerns (a mobile app, a marketing site),
-   which sections to map.
-3. **Modeling forks found while drafting** (Step 3/4) — e.g. "linked to
-   a company, contact, or opportunity" (singular) implies an
-   exclusive-or the spec can only approximate as N independent optional
-   `many-to-one` relationships plus an invariant; or an `on_delete`
-   policy under a PRD-wide "nothing is ever hard-deleted" constraint.
-
-Without `--interactive` (the default): never ask. Every fork resolves
-to its default and is recorded as an assumption in `analysis.md`,
-worded so the user can override by hand:
-
-- **Auth posture** — infer from the PRD's own language; if genuinely
-  silent, default to auth **on** (`api.auth: {type: jwt, scheme:
-  bearer}`) — safer to narrow from than to widen from.
-- **Out-of-scope sections** — map the whole PRD; do not guess a section
-  out of scope on your own judgment.
-- **Exclusive-arc / "belongs to exactly one of" relationships** — model
-  as N independent optional `many-to-one` relationships plus an entity
-  invariant requiring exactly one to be set — count non-nulls, so the
-  check holds in every fill state:
-  `(a_id is not None) + (b_id is not None) + (c_id is not None) == 1`
-  (closest fit to the PRD's intent; never silently drop the
-  exclusivity constraint).
-- **`on_delete` under a "no hard delete" PRD constraint** — `restrict`
-  on every relationship into the affected entity. Deletion itself being
-  out of scope means no path should ever cascade; don't introduce a
-  cascade the PRD never asked for.
-- Any other load-bearing fork Step 3/4 turns up — pick the option
-  closest to the PRD's literal wording, prefer the choice that adds the
-  least unrequested behavior (no cascades, no assumed permissions, no
-  invented workflow steps), and record the fork, the choice, and the
-  rationale in the report's Assumptions section.
-
-With `--interactive`: ask each fork once, as it's found — auth posture
-and out-of-scope sections up front, modeling forks inline during Step
-3/4 — rather than deferring all of them to the report. `--context`
-answering a fork (interactive or not) skips asking it and is recorded
-verbatim as the rationale.
-
-### Step 3 — extract the domain model
-
-Read the PRD as a domain modeler. The mapping doctrine, in confidence
-order:
-
-**Map confidently (the domain layer):**
-
-- **Entities** — durable nouns with identity and lifecycle. Fields
-  become typed attributes; field lists in the PRD map near-verbatim.
-- **Enums** — categorical closed sets: statuses, stages, types, roles
-  *as data*. A PRD list like "pipeline stages: Lead, Qualified, …" is
-  a `domain.enums` entry.
-- **Value objects** — scalars carrying reusable domain semantics
-  (Money, EmailAddress, Percentage). Use `simple` VOs (base `type` +
-  `validation`/`pattern`) by default.
-- **Relationships** — "each X has many Y", "Y belongs to X". Declare
-  both directions.
-- **Invariants** — "amount must be positive", "probability between 0
-  and 100" → entity invariants.
-- **Methods** — domain verbs beyond field-editing CRUD: archive,
-  approve, cancel, close. Promote to an endpoint (`use_case: true`)
-  when the PRD implies a user-triggered action.
-- **API posture** — auth on/off app-wide and per entity; per-op
-  suppression when the PRD forbids an operation (e.g. "records are
-  never deleted" → `api.disabled: [delete]`).
-
-**Map sparingly (the application layer):** a custom use case + port
-only when the PRD *explicitly names* a cross-entity read or workflow —
-a dashboard, a report, a summary view. Model reads CQRS-lite: a custom
-port returning an inline DTO, a thin pass-through use case. Each one
-creates hand-off obligations that `/archascode:apply` fills later; that is
-expected, but every speculative one dilutes the first pass, so when in
-doubt it goes in the report as a *candidate*, not in the spec.
-
-**Route to the report:** authentication *mechanics* (sessions, password
-reset), role-based permission matrices, audit history, soft-delete
-semantics, import/export UX, dashboards beyond a data read, NFRs,
-browser/deployment requirements. Sort these as you go — `deferred` when
-something downstream resolves it (a hand-off body, adapter config,
-`/archascode:wire`), `out of scope` when the PRD itself declared it a
-non-goal. Defensible approximations are allowed — e.g. a polymorphic
-"linked to X or Y or Z" becomes N optional `many-to-one` relationships —
-but every approximation is recorded as an `assumption`.
-
-If the PRD yields no identifiable entities, stop and say so rather
-than fabricating a domain.
-
-### Step 4 — draft `spec/architecture.yml`
-
-Authoring reference (the engine validates all of this; the loop in
-Step 5 catches anything this summary gets wrong):
+The engine validates all of this; `archascode validate` (below) catches
+anything this summary gets wrong.
 
 - **Top level**: only `domain` is required. Emit `schema_version:
   "1.0"`, `metadata` (`name` kebab-cased from the PRD title,
@@ -222,7 +117,8 @@ Step 5 catches anything this summary gets wrong):
 - **Entities**: `domain.entities.<PascalName>` with `description` and
   `attributes` (required key). Give every entity `id: {type: UUID}`
   plus `created_at`/`updated_at` as `{type: datetime, generated: true}`
-  (fixture convention).
+  — see `01-minimal-crud` in `${CLAUDE_PLUGIN_ROOT}/examples/` for the
+  smallest complete instance of this shape.
 - **Attribute types**: `str` | `text` | `int` | `float` | `bool` |
   `UUID` | `datetime` | `date` | `decimal` | `json`, or a declared VO
   or enum name. Attributes default to required; mark optional fields
@@ -324,8 +220,25 @@ tells you what is *right*, and one read up front is cheaper than a
 round-trip per mistake. If the schema and this summary disagree, the
 schema wins and this file is stale.
 
+**Worked examples ship with the plugin** at
+`${CLAUDE_PLUGIN_ROOT}/examples/` — six real specs, the engine's own
+CI-verified fixtures (not hand-written prose), one per construct family:
+
+- `01-minimal-crud` — smallest complete spec.
+- `02-crm-lite` — realistic mid-size: relationships, invariants, enums,
+  a value object, ports.
+- `03-value-objects-enums` — simple/composite value objects, enums.
+- `04-entity-methods` — method shapes, `use_case` promotion.
+- `05-invariants-derived` — derived attributes, `None` propagation.
+- `06-custom-use-cases` — custom ports, use cases, `memory.reads`.
+
+Read the one closest to what's being drafted before writing from
+scratch — a worked example answers shape questions faster than the
+schema's `definitions` block alone, and both agree because the examples
+are the same fixtures the engine tests every run.
+
 Shape sketch (abbreviated — real drafts carry descriptions on every
-node):
+node; see `${CLAUDE_PLUGIN_ROOT}/examples/` for full worked specs):
 
 ```yaml
 schema_version: "1.0"
@@ -405,54 +318,228 @@ application:
       http: { method: GET, path: /schedule }
 ```
 
-### Step 5 — validate via scratch render, iterate to green
+## PRD mode
 
-```bash
-SCRATCH="$(mktemp -d)"
-archascode render spec/architecture.yml --out "$SCRATCH" --json
+Turn a PRD into a first-pass `spec/architecture.yml`. This is the
+"create spec/architecture.yml by hand" hole between greenfield and
+`/archascode:init`.
+
+### Arguments
+
+- `<prd-path>` — required positional. Path to the PRD (markdown or
+  plain text). Invoking with no argument, and no accompanying modeling
+  request, stops with:
+  `analyze-current-spec (no-arg) mode is not implemented yet — pass a PRD path, or describe what you want to model or change.`
+- `--context <text>` — optional. Free-text steering merged into the
+  drafting step and recorded verbatim in the report's Assumptions
+  section, e.g. `"auth required everywhere"` or
+  `"treat Reporting as out of scope"`. When `--context` answers a
+  clarifying fork, the skill skips asking it.
+- `--interactive` — optional. Without it (the default), the skill never
+  stops to ask — every load-bearing fork resolves to its documented
+  default (see Step 2) and gets recorded as an assumption in the
+  report. This is the fast, demo-friendly path: one shot,
+  `architecture.yml` + `analysis.md`, no pauses. With it, the skill
+  asks about load-bearing forks as they're found in Step 2/3/4 —
+  auth posture, out-of-scope sections, and modeling forks like
+  exclusive-arc relationships or `on_delete` policy — each once, as
+  they come up, rather than deferring them all to the report.
+
+Invocation forms:
+
+```
+/archascode:analyze docs/product_prd.md
+/archascode:analyze docs/product_prd.md --context "auth on; ignore the mobile app sections"
+/archascode:analyze docs/product_prd.md --interactive
 ```
 
-- **`ok: false`** → read `errors`, fix the spec, re-render. The errors
-  are the authoritative teacher — when they name unknown keys or an
-  induced op set, trust them over the Step 4 summary. Cap at **5**
-  iterations; if still red, stop, leave the draft in place, and print
-  the remaining errors verbatim for the user.
-- **`ok: true`** → done. Remove the scratch directory:
+### Preconditions
 
-```bash
-rm -rf "$SCRATCH"
+- The PRD file exists and is readable text.
+- `cwd` is the consuming project root (the directory where `spec/`
+  belongs).
+- The `archascode` CLI is on the Bash PATH — the plugin's `bin/` provides
+  it. If `command -v archascode` fails, the plugin install is broken:
+  re-enable/reinstall per INSTALL.md and check the wrapper's executable
+  bit (`chmod +x <kit>/marketplace/plugins/archascode/bin/archascode`).
+- The user is logged in (`archascode login`).
+- `.venv` / `pyproject.toml` are **not** required. Analyze precedes
+  `/archascode:init`; validation needs neither.
+
+If `spec/architecture.yml` already exists, **stop and ask** before
+touching it. Offer: overwrite, write the draft to
+`spec/architecture.proposed.yml` instead, or cancel. Default to cancel
+in non-interactive contexts. An existing spec usually means the user
+wants incremental mode (above) or the future critique mode, not a fresh
+draft.
+
+If any other precondition fails, stop with a one-line message naming
+what's missing — report it, don't try to install or start services.
+
+### What it produces
+
+```
+spec/
+├── architecture.yml   # first-pass spec, validated by archascode validate
+└── analysis.md        # coverage report: requirement map, assumptions, deferred
 ```
 
-- **Connection failure** → the cloud service isn't reachable. Stop and
-  report it, same posture as `/archascode:apply`. Exit **2** with no JSON on
-  stdout means not logged in, not a render failure. Report `not logged
-  in — run archascode login` and stop.
+Nothing else. No `src/`, no manifest, no lockfile — `archascode
+validate` writes into a temp directory that does not survive the call.
+
+### Procedure
+
+#### Step 1 — verify preconditions and read the PRD
+
+```bash
+test -f "$PRD_PATH" || { echo "PRD not found: $PRD_PATH"; exit 1; }
+command -v archascode >/dev/null 2>&1 || { echo "archascode CLI not on PATH — the plugin install is broken; re-enable/reinstall per INSTALL.md"; exit 1; }
+test -f spec/architecture.yml && echo "spec/architecture.yml exists — ask before proceeding"
+```
+
+Read the PRD in full. Note its explicit open-questions section if it
+has one — those flow into the report verbatim.
+
+#### Step 2 — clarifying forks (load-bearing only)
+
+The PRD will surface load-bearing forks — genuinely open questions
+where the spec language can't express the PRD's intent directly and
+more than one defensible modeling choice exists. Two are common enough
+to name up front; more turn up during Step 3/4 domain modeling
+(e.g. an exclusive-arc relationship, an `on_delete` policy under a
+"never hard-delete" constraint):
+
+1. **Auth posture** — does the app require authentication on its API?
+   (Most PRDs say; only open if silent or contradictory.)
+2. **Out-of-scope sections** — when the PRD mixes the buildable system
+   with clearly separate concerns (a mobile app, a marketing site),
+   which sections to map.
+3. **Modeling forks found while drafting** (Step 3/4) — e.g. "linked to
+   a company, contact, or opportunity" (singular) implies an
+   exclusive-or the spec can only approximate as N independent optional
+   `many-to-one` relationships plus an invariant; or an `on_delete`
+   policy under a PRD-wide "nothing is ever hard-deleted" constraint.
+
+Without `--interactive` (the default): never ask. Every fork resolves
+to its default and is recorded as an assumption in `analysis.md`,
+worded so the user can override by hand:
+
+- **Auth posture** — infer from the PRD's own language; if genuinely
+  silent, default to auth **on** (`api.auth: {type: jwt, scheme:
+  bearer}`) — safer to narrow from than to widen from.
+- **Out-of-scope sections** — map the whole PRD; do not guess a section
+  out of scope on your own judgment.
+- **Exclusive-arc / "belongs to exactly one of" relationships** — model
+  as N independent optional `many-to-one` relationships plus an entity
+  invariant requiring exactly one to be set — count non-nulls, so the
+  check holds in every fill state:
+  `(a_id is not None) + (b_id is not None) + (c_id is not None) == 1`
+  (closest fit to the PRD's intent; never silently drop the
+  exclusivity constraint).
+- **`on_delete` under a "no hard delete" PRD constraint** — `restrict`
+  on every relationship into the affected entity. Deletion itself being
+  out of scope means no path should ever cascade; don't introduce a
+  cascade the PRD never asked for.
+- Any other load-bearing fork Step 3/4 turns up — pick the option
+  closest to the PRD's literal wording, prefer the choice that adds the
+  least unrequested behavior (no cascades, no assumed permissions, no
+  invented workflow steps), and record the fork, the choice, and the
+  rationale in the report's Assumptions section.
+
+With `--interactive`: ask each fork once, as it's found — auth posture
+and out-of-scope sections up front, modeling forks inline during Step
+3/4 — rather than deferring all of them to the report. `--context`
+answering a fork (interactive or not) skips asking it and is recorded
+verbatim as the rationale.
+
+#### Step 3 — extract the domain model
+
+Read the PRD as a domain modeler. The mapping doctrine, in confidence
+order:
+
+**Map confidently (the domain layer):**
+
+- **Entities** — durable nouns with identity and lifecycle. Fields
+  become typed attributes; field lists in the PRD map near-verbatim.
+- **Enums** — categorical closed sets: statuses, stages, types, roles
+  *as data*. A PRD list like "pipeline stages: Lead, Qualified, …" is
+  a `domain.enums` entry.
+- **Value objects** — scalars carrying reusable domain semantics
+  (Money, EmailAddress, Percentage). Use `simple` VOs (base `type` +
+  `validation`/`pattern`) by default.
+- **Relationships** — "each X has many Y", "Y belongs to X". Declare
+  both directions.
+- **Invariants** — "amount must be positive", "probability between 0
+  and 100" → entity invariants.
+- **Methods** — domain verbs beyond field-editing CRUD: archive,
+  approve, cancel, close. Promote to an endpoint (`use_case: true`)
+  when the PRD implies a user-triggered action.
+- **API posture** — auth on/off app-wide and per entity; per-op
+  suppression when the PRD forbids an operation (e.g. "records are
+  never deleted" → `api.disabled: [delete]`).
+
+**Map sparingly (the application layer):** a custom use case + port
+only when the PRD *explicitly names* a cross-entity read or workflow —
+a dashboard, a report, a summary view. Model reads CQRS-lite: a custom
+port returning an inline DTO, a thin pass-through use case. Each one
+creates hand-off obligations that `/archascode:apply` fills later; that is
+expected, but every speculative one dilutes the first pass, so when in
+doubt it goes in the report as a *candidate*, not in the spec.
+
+**Route to the report:** authentication *mechanics* (sessions, password
+reset), role-based permission matrices, audit history, soft-delete
+semantics, import/export UX, dashboards beyond a data read, NFRs,
+browser/deployment requirements. Sort these as you go — `deferred` when
+something downstream resolves it (a hand-off body, adapter config,
+`/archascode:wire`), `out of scope` when the PRD itself declared it a
+non-goal. Defensible approximations are allowed — e.g. a polymorphic
+"linked to X or Y or Z" becomes N optional `many-to-one` relationships —
+but every approximation is recorded as an `assumption`.
+
+If the PRD yields no identifiable entities, stop and say so rather
+than fabricating a domain.
+
+#### Step 4 — draft `spec/architecture.yml`
+
+Draft the spec using the Authoring reference above — it applies
+unchanged to PRD mode; nothing here repeats it.
+
+#### Step 5 — validate, iterate to green
+
+```bash
+archascode validate spec/architecture.yml --json
+```
+
+- **`ok: false`** → read `errors`, fix the spec, re-validate. The
+  errors are the authoritative teacher — when they name unknown keys or
+  an induced op set, trust them over the Authoring reference summary.
+  Cap at **5** iterations; if still red, stop, leave the draft in
+  place, and print the remaining errors verbatim for the user.
+- **`ok: true`** → done. Nothing to clean up — `archascode validate`
+  writes into a temp directory that does not survive the call.
+- **Exit `2`, no JSON on stdout** → the command could not be attempted
+  — either `spec/architecture.yml` is missing, or the user is not
+  logged in. Read the stderr message rather than assuming which. If
+  it's the latter, report `not logged in — run archascode login` and
+  stop.
 
 A successful validation may report pending hand-offs (seeded method
 bodies, custom-port adapters). That's healthy — it's exactly what
 `/archascode:apply` consumes next; mention the count in the summary.
 
-**Before deleting the scratch directory, check every memory custom-port
-adapter for injected stores.** A render goes green whether or not a port
-declared `adapters.memory.reads`, but omitting it emits a base class with
-an empty constructor — an adapter with nothing to read, which only fails
-later, mid-`/archascode:apply`, after overlays have been seeded against it. The
-scratch tree already holds the answer:
-
-```bash
-for base in "$SCRATCH"/src/adapter/*/memory/_base.py; do
-  [ -e "$base" ] || continue
-  grep -q "def __init__(self) -> None:" "$base" \
-    && echo "NO STORES: $base — add adapters.memory.reads to this port"
-done
-```
-
-Any hit means the spec is under-declared: add the entities the read
-touches to `ports.<Port>.adapters.memory.reads` and re-render. Fixing it
-here costs one iteration; finding it in `/archascode:apply` costs a stale
+**`archascode validate` cannot see injected-store gaps in memory
+adapters** — it runs against a spec-only temp tree, so there is nothing
+in this skill's control to inspect for that after the fact (unlike the
+former scratch-render loop, which held the rendered tree open). Guard
+against the gap at the source instead: every port's
+`adapters.memory.reads` list (Authoring reference, Custom use cases /
+ports) must name every entity its methods read. Omitting it produces
+`NEEDS SPEC: ports.<Port>.adapters.memory.reads must include <Entity>`
+later, mid-`/archascode:apply`, after overlays have been seeded against
+it — catching it here costs nothing; finding it there costs a stale
 overlay tree.
 
-### Step 6 — write the coverage report
+#### Step 6 — write the coverage report
 
 Write `spec/analysis.md`:
 
@@ -526,18 +613,20 @@ the report mentions. Before writing a row that names one, confirm it:
 
 ```bash
 grep -nE '^\s{6}[a-z_]+:' spec/architecture.yml         # attribute / key names
-grep -rn 'APIRouter(prefix=' "$SCRATCH"/src/api/routers/ # resolved route prefixes
 ```
 
 Route paths are the one thing the spec alone does not settle — a
-declared `http.path` is a suffix under a router prefix (see below), so
-read the rendered router, not the spec key.
+declared `http.path` is a suffix under a router prefix (see below), and
+confirming the resolved prefix now requires a real render (`archascode
+validate` writes into a temp tree that doesn't survive the call, so it
+can't be inspected after the fact) — cite `group` + `http.path` per the
+rule below instead of grepping rendered output.
 
 A wrong citation is worse than a vague one — the reader trusts the report
 as a map of the spec. Never state a path the spec doesn't contain, and
 never build an Assumptions bullet on a detail you have not just verified.
 When the drafted spec and your intent disagree, the spec is what shipped:
-report it, or go fix the spec and re-render.
+report it, or go fix the spec and re-validate.
 
 **A custom use case's route is its group prefix + its `http.path`, not
 the bare `path`.** Per ADR 041, `application.use_cases.<UC>.group` picks
@@ -545,13 +634,9 @@ the router: a declared entity name mounts the route under that entity's
 resource path, and an absent or `Application` group mounts it under the
 reserved `/application` prefix. So `group` unset with `http: {method:
 GET, path: /dashboard}` serves `GET /application/dashboard` — the prefix
-is real, not an artifact. Cite the resolved path, and confirm it in the
-scratch render's `src/api/routers/` output rather than reading `http.path`
-alone:
-
-```bash
-grep -rn 'APIRouter(prefix=' "$SCRATCH"/src/api/routers/
-```
+is real, not an artifact. Cite the resolved path by combining `group` and
+`http.path` per that rule (there is no scratch tree to grep for the
+final router prefix in this mode).
 
 Set `group: <Entity>` when a route belongs under an entity; leave it
 unset for a standalone application-level read.
@@ -568,8 +653,9 @@ decided and what it costs them, not how the engine works. Concretely:
   observable behavior ("the API currently accepts an activity linked to
   nothing, or to two things at once") and skip the derivation.
 - **No methodology.** What was probed, which expression forms were tried,
-  and how many render passes it took are session detail, not findings.
-  The summary line in Step 7 carries the pass count; the report doesn't.
+  and how many validation passes it took are session detail, not
+  findings. The summary line in Step 7 carries the pass count; the
+  report doesn't.
 - **Skip the tuning arithmetic.** Cite a chosen value plainly
   (`Money`: 2 decimal places, max ~12 digits) without deriving the
   ceiling or defending the convention.
@@ -577,7 +663,7 @@ decided and what it costs them, not how the engine works. Concretely:
   they're the shared vocabulary. It's the *engine's* implementation
   details that stay out.
 
-No section opens with a status preamble — no render-pass counts, no
+No section opens with a status preamble — no validation-pass counts, no
 flag-state recap, no "persistence is memory by omission" (Next steps
 already says it). The title block is the source line and nothing more.
 
@@ -609,10 +695,10 @@ table: give the reader the decision and its cost, not the constraint
 that produced it. A `Resolved by` cell names a destination; it does not
 argue.
 
-### Step 7 — summarize
+#### Step 7 — summarize
 
 ```
-✓ spec/architecture.yml — E entities, R relationships, N enums, V value objects, M methods (validated in K render pass(es))
+✓ spec/architecture.yml — E entities, R relationships, N enums, V value objects, M methods (validated in K pass(es))
 ✓ spec/analysis.md — X requirements: M mapped, Y assumptions, Z deferred, S out of scope (A load-bearing forks resolved by default — see Assumptions)
 Next: /archascode:init, then /archascode:apply (P hand-offs pending)
 Persistence: memory (by omission) — /archascode:wire persistence when ready
@@ -623,9 +709,10 @@ were asked, not defaulted).
 
 ## What this skill does NOT do
 
-- **Render into the project tree.** All validation renders target a
-  scratch `--out` directory, deleted afterward. The next real render
-  belongs to `/archascode:apply`.
+- **Write to the project tree except the spec (and, in PRD mode, the
+  report).** `archascode validate` writes into a temp directory that is
+  gone before the call returns. The next real render belongs to
+  `/archascode:apply`.
 - **Run `/archascode:init` or `/archascode:apply`.** Explicit invocation only —
   family rule.
 - **Draft `adapters` / `port_bindings` / `environments`.** The first
@@ -634,44 +721,46 @@ were asked, not defaulted).
 - **Select an auth adapter.** The spec carries auth *posture*;
   jwt_bearer selection, key config, and claims mapping are recorded in
   the report as next steps.
-- **Critique an existing spec.** The no-arg "analyze the current
-  architecture.yml" mode is a future version; today an existing spec
-  triggers the overwrite prompt.
+- **Critique an existing spec unprompted.** The no-arg "analyze the
+  current architecture.yml for flaws" mode is a future version — a bare
+  invocation with no argument and no modeling request stops rather than
+  guessing; a *targeted* change or question about the existing spec is
+  incremental or question mode (above), not this.
 - **Modify the PRD.** Read-only input, always.
 - **Silently approximate.** Every approximation and every deferred
   requirement is in the report; the spec never quietly narrows the PRD.
 
-## Failure modes (v1)
+## Failure modes
 
 | Symptom                                             | Behavior                                                                     |
 | ---------------------------------------------------- | ---------------------------------------------------------------------------- |
-| No argument given                                    | Print "critique mode not implemented — pass a PRD path"; stop.               |
-| PRD path missing / unreadable                        | Print the path; stop.                                                        |
-| `spec/architecture.yml` already exists               | Prompt: overwrite / write `.proposed.yml` / cancel. Cancel when non-interactive. |
+| No argument and no modeling request                  | Print "critique mode not implemented — pass a PRD path, or describe what you want to model or change"; stop. |
+| PRD path missing / unreadable (PRD mode)              | Print the path; stop.                                                        |
+| `spec/architecture.yml` already exists (PRD mode)     | Prompt: overwrite / write `.proposed.yml` / cancel. Cancel when non-interactive. |
 | `archascode` CLI not on PATH                         | Print install pointer (re-enable/reinstall the plugin per INSTALL.md); stop. |
-| Cloud service unreachable                            | Print the URL precondition; stop. Same posture as `/archascode:apply`.               |
-| Render still `ok: false` after 5 iterations          | Stop; leave the draft; print remaining errors verbatim.                       |
-| PRD yields no identifiable entities                  | Stop and say so; a fabricated domain is worse than no draft.                  |
+| `archascode validate` exits 2                        | Missing spec file or not logged in — read the stderr message, report it, stop. Same posture as `/archascode:apply`. |
+| Validation still `ok: false` after 5 iterations       | Stop; leave the draft/edit in place; print remaining errors verbatim.        |
+| PRD yields no identifiable entities (PRD mode)        | Stop and say so; a fabricated domain is worse than no draft.                 |
 
 No retries beyond the bounded validation loop. The user re-invokes
-after adjusting the PRD, the `--context` steer, or the draft by hand.
+after adjusting the PRD, the `--context` steer, the instruction, or the
+draft by hand.
 
 The "cancel when non-interactive" row above is about session
 capability (can the skill show a prompt at all), independent of
-`--interactive` — an existing-spec collision always stops and asks
-when a prompt is possible, flag or no flag; `--interactive` only gates
-the load-bearing modeling forks in Step 2.
+`--interactive` — an existing-spec collision in PRD mode always stops
+and asks when a prompt is possible, flag or no flag; `--interactive`
+only gates the load-bearing modeling forks in Step 2.
 
 ## Notes for future versions
 
 - **No-arg critique mode** — analyze the *current* `architecture.yml`
   for flaws and concerns (normalization, missing invariants, auth
-  holes). Reserved as the no-argument invocation; the reason v1 errors
-  on a missing arg instead of guessing.
+  holes). Reserved as the no-argument, no-request invocation; the
+  reason it still errors instead of guessing.
 - **`--update` mode** — re-analyze an evolved PRD against an existing
   spec and emit a diff proposal instead of a fresh draft.
 - **Multi-document input** — a PRD plus supplementary docs (API notes,
   data dictionary) as additional positional args.
-- **`archascode validate` verb** — if the scratch render ever proves
-  too slow or heavy as a validation gate, a validate-only CLI verb is
-  the clean fix; that's new product surface and gets its own ADR.
+- **`archascode validate` verb** — this now exists (ADR 082) and is
+  what every mutating mode above runs.

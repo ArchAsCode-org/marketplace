@@ -1,0 +1,171 @@
+schema_version: "1.0"
+metadata:
+  name: crm-lite
+  version: "0.1.0"
+  description: First-pass spec drafted from CRM_Lite_PRD.md by /archascode:analyze
+
+api:
+  auth: {type: jwt, scheme: bearer}
+
+domain:
+  enums:
+    OpportunityStage:
+      values:
+        - lead
+        - qualified
+        - proposal
+        - negotiation
+        - closed_won
+        - closed_lost
+    ActivityType:
+      values:
+        - call
+        - meeting
+        - email
+        - note
+
+  value_objects:
+    Money:
+      type: Decimal
+      validation: {precision: 12, scale: 2, min: 0}
+
+  entities:
+    Company:
+      description: A business account tracked in the CRM.
+      attributes:
+        id: {type: UUID}
+        name: {type: str, faker: company.name}
+        industry: {type: str, required: false, faker: company.buzzNoun}
+        website: {type: str, required: false, faker: internet.url}
+        phone: {type: str, required: false, faker: phone.number}
+        notes: {type: text, required: false}
+        created_at: {type: datetime, generated: true}
+        updated_at: {type: datetime, generated: true}
+      relationships:
+        contacts:
+          entity: Contact
+          cardinality: one-to-many
+        opportunities:
+          entity: Opportunity
+          cardinality: one-to-many
+
+    Contact:
+      description: A person at a company.
+      attributes:
+        id: {type: UUID}
+        first_name: {type: str, faker: person.firstName}
+        last_name: {type: str, faker: person.lastName}
+        title: {type: str, required: false, faker: person.jobTitle}
+        email: {type: str, required: false, faker: internet.email}
+        phone: {type: str, required: false, faker: phone.number}
+        created_at: {type: datetime, generated: true}
+        updated_at: {type: datetime, generated: true}
+      relationships:
+        company:
+          entity: Company
+          cardinality: many-to-one
+          on_delete: restrict
+          required: true
+
+    Opportunity:
+      description: A sales opportunity moving through the pipeline.
+      attributes:
+        id: {type: UUID}
+        name: {type: str, faker: company.catchPhrase}
+        stage: {type: OpportunityStage, default: lead}
+        amount: {type: Money}
+        probability: {type: int}
+        expected_close_date: {type: date}
+        notes: {type: text, required: false}
+        created_at: {type: datetime, generated: true}
+        updated_at: {type: datetime, generated: true}
+      relationships:
+        company:
+          entity: Company
+          cardinality: many-to-one
+          on_delete: restrict
+          required: true
+        activities:
+          entity: Activity
+          cardinality: one-to-many
+      invariants:
+        probability_in_range: "0 <= probability <= 100"
+        closed_won_settled: "stage != 'closed_won' or probability == 100"
+        closed_lost_settled: "stage != 'closed_lost' or probability == 0"
+      methods:
+        move_stage:
+          description: >-
+            Move the opportunity to a new pipeline stage. Moving to Closed
+            Won settles probability to 100 and moving to Closed Lost
+            settles it to 0, without the caller supplying either.
+          mutable: true
+          parameters:
+            stage: OpportunityStage
+          use_case: true
+      api:
+        disabled: [delete]
+
+    Activity:
+      description: >-
+        An append-only log entry recording an interaction on an
+        opportunity.
+      attributes:
+        id: {type: UUID}
+        type: {type: ActivityType}
+        occurred_at: {type: datetime}
+        subject: {type: str}
+        body: {type: text, required: false}
+        created_at: {type: datetime, generated: true}
+        updated_at: {type: datetime, generated: true}
+      relationships:
+        opportunity:
+          entity: Opportunity
+          cardinality: many-to-one
+          on_delete: cascade
+          required: true
+      api:
+        disabled: [update]
+
+application:
+  ports:
+    PipelineReader:
+      description: Read-side port assembling the pipeline dashboard view.
+      adapters:
+        memory:
+          reads: [Opportunity]
+      value_objects:
+        StageBreakdown:
+          description: Count and total value for one pipeline stage.
+          fields:
+            stage: {type: OpportunityStage}
+            count: {type: int}
+            total_value: {type: Money}
+        PipelineDashboard:
+          description: The assembled pipeline dashboard summary.
+          fields:
+            open_opportunity_count: {type: int}
+            open_pipeline_value: {type: Money}
+            by_stage: {type: "list[StageBreakdown]"}
+      methods:
+        load:
+          description: >-
+            Return the open opportunity count, total open pipeline value,
+            and per-stage counts/totals across all stages.
+          input: void
+          output: PipelineDashboard
+  use_cases:
+    GetDashboard:
+      description: Load the pipeline dashboard summary.
+      input: void
+      output: PipelineDashboard
+      uses:
+        ports:
+          - port: PipelineReader
+            mode: read
+      workflow:
+        - Call PipelineReader.load() and return the assembled PipelineDashboard.
+      http: {method: GET, path: /dashboard}
+environments:
+  dev:
+    port_binding: memory
+default_environment: dev

@@ -166,10 +166,15 @@
       "properties": {
         "persistence": {
           "type": "object",
-          "additionalProperties": false,
+          "description": "Persistence backends, keyed by adapter id (ADR 085 D1). 'sqlserver' keeps its full config schema; other backends are accepted as opaque objects — the parse layer describes the language, the render layer enforces what this build supports.",
           "properties": {
             "sqlserver": {
               "$ref": "#/definitions/SqlServerConfig"
+            }
+          },
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "type": "object"
             }
           }
         },
@@ -364,6 +369,10 @@
         "type": {
           "type": "string",
           "description": "Base type for simple value objects"
+        },
+        "base_type": {
+          "type": "string",
+          "description": "Base type for a simple value object (legacy alias for 'type')"
         },
         "pattern": {
           "type": "string",
@@ -562,7 +571,7 @@
           "default": true
         }
       },
-      "oneOf": [
+      "anyOf": [
         { "required": ["type"] },
         { "required": ["entity"] }
       ]
@@ -701,24 +710,7 @@
       }
     },
     "Invariant": {
-      "oneOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["condition"],
-          "properties": {
-            "condition": {
-              "type": "string"
-            },
-            "description": {
-              "type": "string"
-            }
-          }
-        }
-      ]
+      "type": "string"
     },
     "ApplicationPort": {
       "type": "object",

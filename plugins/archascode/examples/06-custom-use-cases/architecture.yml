@@ -1,0 +1,407 @@
+schema_version: "1.0"
+
+metadata:
+  name: orderly-manager
+  description: >
+    Order manager with a custom application use case and port — exercises the
+    path where deterministic codegen produces stubs with prose for an agent
+    to implement.
+  version: "1.0.0"
+  generated_at: "2026-01-06T18:45:00+00:00"
+  source: spec/analysis/
+
+domain:
+  value_objects:
+    Money:
+      description: Monetary value with precision for currency amounts
+      type: Decimal
+      validation:
+        precision: 12
+        scale: 2
+        min: 0
+
+    Weight:
+      description: Product weight measurement
+      type: Decimal
+      validation:
+        precision: 10
+        scale: 3
+        min: 0
+
+  entities:
+    Profile:
+      description: User profile containing account and subscription information
+      owner_field: user_id
+      attributes:
+        id:
+          type: UUID
+        user_id:
+          type: UUID
+        email:
+          type: str
+          required: false
+          faker: internet.email
+        display_name:
+          type: str
+          required: false
+          faker: person.name
+        stripe_customer_id:
+          type: str
+          required: false
+          pattern: "cus_[a-zA-Z0-9]{14}"
+        stripe_subscription_id:
+          type: str
+          required: false
+          pattern: "sub_[a-zA-Z0-9]{14}"
+        subscription_status:
+          type: str
+          required: false
+          examples: [active, canceled, trialing, past_due, incomplete]
+        trial_ends_at:
+          type: datetime
+          required: false
+          faker:
+            date_time.between:
+              - "2025-01-01"
+              - "2026-12-31"
+        created_at:
+          type: datetime
+          generated: true
+          faker:
+            date_time.between:
+              - "2024-01-01"
+              - "2025-12-31"
+        updated_at:
+          type: datetime
+          generated: true
+          faker:
+            date_time.between:
+              - "2024-01-01"
+              - "2025-12-31"
+
+    Customer:
+      description: Customer entity representing a business customer for orders
+      owner_field: user_id
+      attributes:
+        id:
+          type: UUID
+        user_id:
+          type: UUID
+        name:
+          type: str
+          faker: company.name
+        address:
+          type: str
+          faker: address.full_address
+        first_order_date:
+          type: date
+          faker:
+            date.between:
+              - "2023-01-01"
+              - "2025-12-31"
+        created_at:
+          type: datetime
+          generated: true
+          faker:
+            date_time.between:
+              - "2024-01-01"
+              - "2025-12-31"
+        updated_at:
+          type: datetime
+          generated: true
+          faker:
+            date_time.between:
+              - "2024-01-01"
+              - "2025-12-31"
+      relationships:
+        orders:
+          entity: Order
+          cardinality: one-to-many
+
+    Product:
+      description: Product catalog item available for ordering
+      owner_field: user_id
+      attributes:
+        id:
+          type: UUID
+        user_id:
+          type: UUID
+        name:
+          type: str
+          faker: commerce.product_name
+        description:
+          type: str
+          faker: lorem.sentence
+        price:
+          type: Money
+          faker:
+            pydecimal:
+              min_value: 1
+              max_value: 999
+              right_digits: 2
+        weight:
+          type: Weight
+          faker:
+            pydecimal:
+              min_value: 0.1
+              max_value: 100
+              right_digits: 3
+        created_at:
+          type: datetime
+          generated: true
+          faker:
+            date_time.between:
+              - "2024-01-01"
+              - "2025-12-31"
+        updated_at:
+          type: datetime
+          generated: true
+          faker:
+            date_time.between:
+              - "2024-01-01"
+              - "2025-12-31"
+      relationships:
+        order_line_items:
+          entity: OrderLineItem
+          cardinality: one-to-many
+      invariants:
+        price_non_negative: "price >= 0"
+        weight_non_negative: "weight >= 0"
+
+    Order:
+      description: Customer order containing line items
+      owner_field: user_id
+      attributes:
+        id:
+          type: UUID
+        user_id:
+          type: UUID
+        customer_id:
+          type: UUID
+        order_date:
+          type: date
+          faker:
+            date.between:
+              - "2024-01-01"
+              - "2026-12-31"
+        total:
+          type: Money
+          required: false
+          faker:
+            pydecimal:
+              min_value: 10
+              max_value: 5000
+              right_digits: 2
+        created_at:
+          type: datetime
+          generated: true
+          faker:
+            date_time.between:
+              - "2024-01-01"
+              - "2025-12-31"
+        updated_at:
+          type: datetime
+          generated: true
+          faker:
+            date_time.between:
+              - "2024-01-01"
+              - "2025-12-31"
+      relationships:
+        customer:
+          entity: Customer
+          cardinality: many-to-one
+          on_delete: restrict
+        line_items:
+          entity: OrderLineItem
+          cardinality: one-to-many
+
+    OrderLineItem:
+      description: Individual line item within an order
+      attributes:
+        id:
+          type: UUID
+        order_id:
+          type: UUID
+        product_id:
+          type: UUID
+        quantity:
+          type: int
+          faker:
+            random_int:
+              min: 1
+              max: 100
+        unit_price:
+          type: Money
+          faker:
+            pydecimal:
+              min_value: 1
+              max_value: 999
+              right_digits: 2
+        created_at:
+          type: datetime
+          generated: true
+          faker:
+            date_time.between:
+              - "2024-01-01"
+              - "2025-12-31"
+        updated_at:
+          type: datetime
+          generated: true
+          faker:
+            date_time.between:
+              - "2024-01-01"
+              - "2025-12-31"
+      relationships:
+        order:
+          entity: Order
+          cardinality: many-to-one
+          on_delete: cascade
+        product:
+          entity: Product
+          cardinality: many-to-one
+          on_delete: restrict
+      invariants:
+        quantity_positive: "quantity > 0"
+        unit_price_non_negative: "unit_price >= 0"
+
+  errors:
+    CustomerHasNoOrderHistoryError: "Customer has no orders in the lookback window; cannot suggest a reorder"
+
+application:
+  use_cases:
+    HealthCheck:
+      description: >
+        Anonymous health endpoint — confirms the application is wired and
+        the auth adapter can produce CurrentUser.anonymous() at the call
+        site. Exercises the ADR 024 anonymous-route rendering path.
+        Default-group (no group key) custom UC: routes to Application group.
+      auth: anonymous
+      input: void
+      output: "str"
+      http:
+        method: GET
+        path: /health
+      workflow:
+        - "Return the string 'ok'"
+    SuggestReorder:
+      description: >
+        Suggest products a customer should reorder based on their recent order
+        history and a forecasted demand signal. Combines deterministic
+        aggregation of past line items with a fuzzy demand forecast supplied
+        by the DemandForecaster port — the kind of step an agent (or an ML
+        model behind the port) is expected to implement.
+        Named-entity-group custom UC: routes to Customer group.
+      auth: required
+      group: Customer
+      http:
+        method: GET
+        path: /reorder-suggestions
+      input:
+        customer_id:
+          type: UUID
+          description: Customer to generate suggestions for
+        lookback_days:
+          type: int
+          description: How many days of order history to consider
+      output: "list[ReorderSuggestion]"
+      workflow:
+        - "Load the Customer by customer_id; ensure it belongs to the current user"
+        - "Load Orders for the customer with order_date within the last lookback_days"
+        - "If no orders were found, raise CustomerHasNoOrderHistoryError"
+        - "Aggregate OrderLineItems across those orders: per product_id, sum quantity and count distinct orders"
+        - "Call DemandForecaster.forecast(customer_id, lookback_days) to retrieve forecasted demand per product"
+        - "For each product appearing in either the history aggregation or the forecast:"
+        - "  - suggested_quantity = max(historical_avg_per_order, forecasted_quantity)"
+        - "  - rationale = short prose explaining which signal dominated and why"
+        - "Return one ReorderSuggestion per product, ordered by suggested_quantity descending"
+      errors:
+        - CustomerHasNoOrderHistoryError
+      uses:
+        repositories: [Customer, Order, OrderLineItem]
+        ports:
+          - port: DemandForecaster
+            mode: read
+    InternalRecompute:
+      description: >
+        Internal recomputation — not exposed as an HTTP endpoint.
+        Exercises the endpoint: false opt-out (ADR 041 #1). This UC still
+        renders its application package and composition factory but produces
+        no route, no projection entry, and no rail row.
+      auth: required
+      endpoint: false
+      workflow:
+        - "Recompute internal state"
+
+  ports:
+    DemandForecaster:
+      description: >
+        Produces a forecasted demand signal per product for a given customer
+        and lookback window. The deterministic codegen will emit a stub that
+        raises NotImplementedError with this prose attached — an agent (or
+        a hand-written ML adapter) is expected to fill in the body.
+      adapters:
+        memory:
+          reads: [Customer, Order]
+        sqlserver: {}
+      value_objects:
+        ProductDemand:
+          description: >
+            Forecasted demand for a single product over the next reorder
+            window. Returned as a list from DemandForecaster.forecast.
+          fields:
+            product_id:
+              type: UUID
+              description: Product the forecast applies to
+            forecasted_quantity:
+              type: int
+              description: Expected units the customer will need in the next window
+            confidence:
+              type: float
+              required: false
+              description: "Optional model confidence score (0–1) for downstream filtering"
+        ReorderSuggestion:
+          description: >
+            A single reorder recommendation returned by SuggestReorder. Combines
+            historical signal with the DemandForecaster output into a
+            user-presentable suggestion.
+          fields:
+            product_id:
+              type: UUID
+              description: Product being suggested for reorder
+            suggested_quantity:
+              type: int
+              description: Final recommended quantity to reorder
+            rationale:
+              type: string
+              description: Short prose explaining which signals drove the suggestion
+      methods:
+        forecast:
+          description: >
+            Return forecasted demand for each product this customer is likely
+            to reorder in the next window. Implementations may use a
+            heuristic over historical orders, an ML model, or an external
+            service — the use case does not care which.
+          input:
+            customer_id:
+              type: UUID
+              description: Customer to forecast for
+            lookback_days:
+              type: int
+              description: How many days of history the caller used to build context
+          output: "list[ProductDemand]"
+        confidence_floor:
+          description: >
+            Return the minimum acceptable confidence score for forecast items
+            emitted by this adapter. Callers may use this to filter low-confidence
+            ProductDemand entries before acting on them.
+          input: void
+          output: float
+
+api:
+  auth:
+    type: jwt
+    scheme: bearer
+
+adapters:
+  auth:
+    id: noop

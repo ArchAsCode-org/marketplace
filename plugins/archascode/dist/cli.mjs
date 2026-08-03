@@ -9,11 +9,40 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 // ../../../packages/core/src/render.ts
-import { readFile as readFile4, readdir as readdir2 } from "node:fs/promises";
-import * as path6 from "node:path";
+import { readFile as readFile4, readdir as readdir3 } from "node:fs/promises";
+import * as path7 from "node:path";
+
+// ../../../packages/core/src/backendDirs.ts
+import { readdir, stat } from "node:fs/promises";
+import * as path from "node:path";
+async function listSchemaChainBackends(outDir, parentRelDir) {
+  const parentDir = path.join(outDir, parentRelDir);
+  let entries;
+  try {
+    entries = await readdir(parentDir);
+  } catch (err) {
+    if (isNotFound(err)) return [];
+    throw err;
+  }
+  const backends = [];
+  for (const entry of entries) {
+    const migrationsDir = path.join(parentDir, entry, "schema", "migrations");
+    let isDir = false;
+    try {
+      isDir = (await stat(migrationsDir)).isDirectory();
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
+    }
+    if (isDir) backends.push(entry);
+  }
+  return backends.sort();
+}
+function isNotFound(err) {
+  return typeof err === "object" && err !== null && "code" in err && (err.code === "ENOENT" || err.code === "ENOTDIR");
+}
 
 // ../../../packages/core/src/version.ts
-var ARCHASCODE_VERSION = "0.3.2";
+var ARCHASCODE_VERSION = "0.4.0";
 
 // ../../../packages/core/src/client.ts
 var CloudRequestError = class extends Error {
@@ -77,16 +106,16 @@ async function safeReadText(res) {
 
 // ../../../packages/core/src/files.ts
 import { access, mkdir, rm, writeFile } from "node:fs/promises";
-import * as path from "node:path";
+import * as path2 from "node:path";
 function assertSafeRelativePath(p) {
   if (!p || p.trim() !== p) {
     throw new Error(`refusing empty/whitespace path: ${JSON.stringify(p)}`);
   }
-  if (path.isAbsolute(p)) {
+  if (path2.isAbsolute(p)) {
     throw new Error(`refusing absolute path from cloud: ${p}`);
   }
-  const normalized = path.normalize(p);
-  if (normalized.startsWith("..") || normalized.split(path.sep).includes("..")) {
+  const normalized = path2.normalize(p);
+  if (normalized.startsWith("..") || normalized.split(path2.sep).includes("..")) {
     throw new Error(`refusing path traversal: ${p}`);
   }
 }
@@ -96,7 +125,7 @@ async function writeFiles(outDir, files, tombstone = /* @__PURE__ */ new Set()) 
   const seededOnceEver = [];
   for (const file of files) {
     assertSafeRelativePath(file.path);
-    const dest = path.join(outDir, file.path);
+    const dest = path2.join(outDir, file.path);
     if (file.policy === "once" && await pathExists(dest)) {
       skipped.push(file.path);
       continue;
@@ -104,7 +133,7 @@ async function writeFiles(outDir, files, tombstone = /* @__PURE__ */ new Set()) 
     if (file.policy === "once-ever" && (tombstone.has(file.path) || await pathExists(dest))) {
       continue;
     }
-    await mkdir(path.dirname(dest), { recursive: true });
+    await mkdir(path2.dirname(dest), { recursive: true });
     await writeFile(dest, file.content, "utf8");
     written.push(file.path);
     if (file.policy === "once-ever") {
@@ -129,14 +158,14 @@ async function deleteFiles(outDir, relPaths) {
     } catch {
       continue;
     }
-    const dest = path.join(outDir, rel);
+    const dest = path2.join(outDir, rel);
     await rm(dest, { force: true });
   }
 }
 
 // ../../../packages/core/src/handoff.ts
 import { access as access2, copyFile, mkdir as mkdir2, readFile } from "node:fs/promises";
-import * as path2 from "node:path";
+import * as path3 from "node:path";
 
 // ../../../packages/core/src/handoffMarker.ts
 var ENTITY_METHOD_STUB_MARKER = "# archascode: entity-method body stub \u2014 remove this line when you implement";
@@ -165,11 +194,11 @@ function stripOverlayTreePrefix(implTargetFile) {
   return { rel: implTargetFile, hintTree: "src" };
 }
 async function probeOverlayTree(outDir, rel) {
-  const lockedAbs = path2.join(outDir, "spec", "locked", rel);
+  const lockedAbs = path3.join(outDir, "spec", "locked", rel);
   if (await pathExists2(lockedAbs)) {
     return { overlayAbs: lockedAbs, resolvedTree: "locked" };
   }
-  const srcAbs = path2.join(outDir, "spec", "src", rel);
+  const srcAbs = path3.join(outDir, "spec", "src", rel);
   if (await pathExists2(srcAbs)) {
     return { overlayAbs: srcAbs, resolvedTree: "src" };
   }
@@ -185,7 +214,7 @@ async function applyOverlay(outDir, handoff, previousContracts) {
     assertSafeRelativePath(item.contract_file);
     const { rel, hintTree } = stripOverlayTreePrefix(item.impl_target_file);
     const { overlayAbs, resolvedTree } = await probeOverlayTree(outDir, rel);
-    const targetAbs = path2.join(outDir, item.contract_file);
+    const targetAbs = path3.join(outDir, item.contract_file);
     const stored = contracts[item.id];
     const overlayExists = resolvedTree !== null;
     treeInfo.set(item.id, { resolvedTree, hintTree, rel });
@@ -196,7 +225,7 @@ async function applyOverlay(outDir, handoff, previousContracts) {
         pending.push({ item, reason: "stub-marker" });
         continue;
       }
-      await mkdir2(path2.dirname(targetAbs), { recursive: true });
+      await mkdir2(path3.dirname(targetAbs), { recursive: true });
       await copyFile(overlayAbs, targetAbs);
       contracts[item.id] = item.contract_hash;
       resolved.push(item);
@@ -225,83 +254,89 @@ async function pathExists2(p) {
 
 // ../../../packages/core/src/interfaceLock.ts
 import { mkdir as mkdir3, readFile as readFile2, writeFile as writeFile2 } from "node:fs/promises";
-import * as path3 from "node:path";
-var INTERFACES_LOCK_REL_PATH = path3.join("spec", "locked", "interfaces.lock");
+import * as path4 from "node:path";
+var INTERFACES_LOCK_REL_PATH = path4.join("spec", "locked", "interfaces.lock");
 async function readInterfaceLock(outDir) {
-  const lockPath = path3.join(outDir, INTERFACES_LOCK_REL_PATH);
+  const lockPath = path4.join(outDir, INTERFACES_LOCK_REL_PATH);
   let raw;
   try {
     raw = await readFile2(lockPath, "utf8");
   } catch (err) {
-    if (isNotFound(err)) return {};
+    if (isNotFound2(err)) return {};
     throw err;
   }
   return JSON.parse(raw);
 }
 async function writeInterfaceLock(outDir, map) {
-  const lockPath = path3.join(outDir, INTERFACES_LOCK_REL_PATH);
-  await mkdir3(path3.dirname(lockPath), { recursive: true });
+  const lockPath = path4.join(outDir, INTERFACES_LOCK_REL_PATH);
+  await mkdir3(path4.dirname(lockPath), { recursive: true });
   await writeFile2(lockPath, JSON.stringify(map, null, 2) + "\n", "utf8");
-}
-function isNotFound(err) {
-  return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
-}
-
-// ../../../packages/core/src/manifest.ts
-import { mkdir as mkdir4, readFile as readFile3, writeFile as writeFile3 } from "node:fs/promises";
-import * as path4 from "node:path";
-var MANIFEST_REL_PATH = path4.join(".archascode", "manifest.json");
-async function readManifest(outDir) {
-  const manifestPath = path4.join(outDir, MANIFEST_REL_PATH);
-  let raw;
-  try {
-    raw = await readFile3(manifestPath, "utf8");
-  } catch (err) {
-    if (isNotFound2(err)) return null;
-    throw err;
-  }
-  const parsed = JSON.parse(raw);
-  if (parsed.schemaVersion !== 1) {
-    throw new Error(
-      `unexpected manifest schemaVersion=${parsed.schemaVersion} at ${manifestPath}`
-    );
-  }
-  return parsed;
-}
-async function writeManifest(outDir, manifest) {
-  const manifestPath = path4.join(outDir, MANIFEST_REL_PATH);
-  await mkdir4(path4.dirname(manifestPath), { recursive: true });
-  await writeFile3(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
 }
 function isNotFound2(err) {
   return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
 }
 
-// ../../../packages/core/src/overlayMove.ts
-import { mkdir as mkdir5, readdir, rename, rm as rm2, stat } from "node:fs/promises";
+// ../../../packages/core/src/manifest.ts
+import { mkdir as mkdir4, readFile as readFile3, writeFile as writeFile3 } from "node:fs/promises";
 import * as path5 from "node:path";
+var MANIFEST_REL_PATH = path5.join(".archascode", "manifest.json");
+var CURRENT_SCHEMA_VERSION = 2;
+async function readManifest(outDir) {
+  const manifestPath = path5.join(outDir, MANIFEST_REL_PATH);
+  let raw;
+  try {
+    raw = await readFile3(manifestPath, "utf8");
+  } catch (err) {
+    if (isNotFound3(err)) return null;
+    throw err;
+  }
+  const parsed = JSON.parse(raw);
+  const v = parsed.schemaVersion;
+  if (typeof v !== "number") {
+    throw new Error(`unexpected manifest schemaVersion=${String(v)} at ${manifestPath}`);
+  }
+  if (v > CURRENT_SCHEMA_VERSION) {
+    throw new Error(`unexpected manifest schemaVersion=${v} at ${manifestPath}`);
+  }
+  if (v < CURRENT_SCHEMA_VERSION) {
+    return null;
+  }
+  return parsed;
+}
+async function writeManifest(outDir, manifest) {
+  const manifestPath = path5.join(outDir, MANIFEST_REL_PATH);
+  await mkdir4(path5.dirname(manifestPath), { recursive: true });
+  await writeFile3(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+}
+function isNotFound3(err) {
+  return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
+}
+
+// ../../../packages/core/src/overlayMove.ts
+import { mkdir as mkdir5, readdir as readdir2, rename, rm as rm2, stat as stat2 } from "node:fs/promises";
+import * as path6 from "node:path";
 async function pruneEmptyDirs(root) {
   let entries;
   try {
-    entries = await readdir(root);
+    entries = await readdir2(root);
   } catch (err) {
-    if (isNotFound3(err)) return;
+    if (isNotFound4(err)) return;
     throw err;
   }
   for (const name of entries) {
-    const abs = path5.join(root, name);
+    const abs = path6.join(root, name);
     let isDir;
     try {
-      const s = await stat(abs);
+      const s = await stat2(abs);
       isDir = s.isDirectory();
     } catch (err) {
-      if (isNotFound3(err)) continue;
+      if (isNotFound4(err)) continue;
       throw err;
     }
     if (!isDir) continue;
     await pruneEmptyDirs(abs);
-    const remaining = await readdir(abs).catch((e) => {
-      if (isNotFound3(e)) return [];
+    const remaining = await readdir2(abs).catch((e) => {
+      if (isNotFound4(e)) return [];
       throw e;
     });
     if (remaining.length === 0) {
@@ -314,21 +349,21 @@ async function reconcileOverlayTree(outDir, treeInfo) {
   for (const [id, info] of treeInfo) {
     if (info.hintTree === "locked" && info.resolvedTree === "src") {
       assertSafeRelativePath(info.rel);
-      const srcAbs = path5.join(outDir, "spec", "src", info.rel);
-      const destAbs = path5.join(outDir, "spec", "locked", info.rel);
-      await mkdir5(path5.dirname(destAbs), { recursive: true });
+      const srcAbs = path6.join(outDir, "spec", "src", info.rel);
+      const destAbs = path6.join(outDir, "spec", "locked", info.rel);
+      await mkdir5(path6.dirname(destAbs), { recursive: true });
       await rename(srcAbs, destAbs);
-      await pruneEmptyDirs(path5.join(outDir, "spec", "src"));
+      await pruneEmptyDirs(path6.join(outDir, "spec", "src"));
       reports.push(
         `moved body for hand-off \`${id}\` from spec/src/ \u2192 spec/locked/ to honor \`locked: true\``
       );
     } else if (info.hintTree === "src" && info.resolvedTree === "locked") {
       assertSafeRelativePath(info.rel);
-      const srcAbs = path5.join(outDir, "spec", "locked", info.rel);
-      const destAbs = path5.join(outDir, "spec", "src", info.rel);
-      await mkdir5(path5.dirname(destAbs), { recursive: true });
+      const srcAbs = path6.join(outDir, "spec", "locked", info.rel);
+      const destAbs = path6.join(outDir, "spec", "src", info.rel);
+      await mkdir5(path6.dirname(destAbs), { recursive: true });
       await rename(srcAbs, destAbs);
-      await pruneEmptyDirs(path5.join(outDir, "spec", "locked"));
+      await pruneEmptyDirs(path6.join(outDir, "spec", "locked"));
       reports.push(
         `moved body for hand-off \`${id}\` from spec/locked/ \u2192 spec/src/ \u2014 \`locked\` is no longer declared`
       );
@@ -336,21 +371,14 @@ async function reconcileOverlayTree(outDir, treeInfo) {
   }
   return reports;
 }
-function isNotFound3(err) {
+function isNotFound4(err) {
   return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
 }
 
 // ../../../packages/core/src/render.ts
-var SPEC_MIGRATIONS_REL_DIR = path6.join(
-  "spec",
-  "locked",
-  "adapter",
-  "persistence",
-  "sqlserver",
-  "schema",
-  "migrations"
-);
+var specMigrationsRelDir = (backend) => path7.join("spec", "locked", "adapter", "persistence", backend, "schema", "migrations");
 var INFLIGHT_FILENAME = "_inflight.sql";
+var SPEC_PERSISTENCE_PARENT_REL_DIR = path7.join("spec", "locked", "adapter", "persistence");
 async function render(opts) {
   const specYaml = await readFile4(opts.specPath, "utf8");
   const previous = await readManifest(opts.outDir);
@@ -386,7 +414,7 @@ async function render(opts) {
   if (Object.keys(overlay.contracts).length > 0 || Object.keys(previousLedger).length > 0) {
     await writeInterfaceLock(opts.outDir, overlay.contracts);
   }
-  const warnings = [];
+  const warnings = [...response.warnings ?? []];
   const handoffIdSet = new Set(handoffItems.map((h) => h.id));
   for (const p of overlay.pending) {
     if (p.reason === "hash-drift") {
@@ -428,9 +456,9 @@ async function render(opts) {
   const now = opts.now ? opts.now() : /* @__PURE__ */ new Date();
   const inflightSlug = response.inflight_slug ?? null;
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     renderedAt: now.toISOString(),
-    specPath: path6.resolve(opts.specPath),
+    specPath: path7.resolve(opts.specPath),
     files: trackedPaths,
     renderedBy: {
       client: ARCHASCODE_VERSION,
@@ -457,25 +485,28 @@ async function render(opts) {
   };
 }
 async function readPriorMigrations(outDir) {
-  const dir = path6.join(outDir, SPEC_MIGRATIONS_REL_DIR);
-  let entries;
-  try {
-    entries = await readdir2(dir);
-  } catch (err) {
-    if (isNotFound4(err)) return [];
-    throw err;
-  }
-  const cuts = entries.filter(
-    (name) => name.endsWith(".sql") && name !== INFLIGHT_FILENAME
-  );
+  const backends = await listSchemaChainBackends(outDir, SPEC_PERSISTENCE_PARENT_REL_DIR);
   const out = [];
-  for (const filename of cuts.sort()) {
-    const contents = await readFile4(path6.join(dir, filename), "utf8");
-    out.push({ filename, contents });
+  for (const backend of backends) {
+    const dir = path7.join(outDir, specMigrationsRelDir(backend));
+    let entries;
+    try {
+      entries = await readdir3(dir);
+    } catch (err) {
+      if (isNotFound5(err)) continue;
+      throw err;
+    }
+    const cuts = entries.filter(
+      (name) => name.endsWith(".sql") && name !== INFLIGHT_FILENAME
+    );
+    for (const filename of cuts.sort()) {
+      const contents = await readFile4(path7.join(dir, filename), "utf8");
+      out.push({ filename, contents });
+    }
   }
   return out;
 }
-function isNotFound4(err) {
+function isNotFound5(err) {
   return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
 }
 function parseSemverLoose(s) {
@@ -497,7 +528,7 @@ function buildEnvironments(entries) {
     const env = {
       portBinding: entry.port_binding,
       data: entry.data,
-      needsSqlserver: entry.needs_sqlserver
+      persistenceBackends: [...entry.persistence_backends]
     };
     if (entry.compute) {
       env.compute = entry.compute;
@@ -556,61 +587,64 @@ function isLocalDevOrigin(url) {
 
 // ../../../packages/core/src/cutSchemaMigration.ts
 import { mkdir as mkdir6, readFile as readFile5, writeFile as writeFile4 } from "node:fs/promises";
-import * as path7 from "node:path";
-var MIGRATIONS_REL_DIR = path7.join(
-  "src",
-  "adapter",
-  "persistence",
-  "sqlserver",
-  "schema",
-  "migrations"
-);
-var SPEC_MIGRATIONS_REL_DIR2 = path7.join(
-  "spec",
-  "locked",
-  "adapter",
-  "persistence",
-  "sqlserver",
-  "schema",
-  "migrations"
-);
+import * as path8 from "node:path";
+var migrationsRelDir = (backend) => path8.join("src", "adapter", "persistence", backend, "schema", "migrations");
+var specMigrationsRelDir2 = (backend) => path8.join("spec", "locked", "adapter", "persistence", backend, "schema", "migrations");
 var INFLIGHT_FILENAME2 = "_inflight.sql";
 var FALLBACK_SLUG = "update_schema";
 var EMPTY_INFLIGHT_BODY = "-- Generated by archascode \u2014 no pending schema changes\n";
+var SRC_PERSISTENCE_PARENT_REL_DIR = path8.join("src", "adapter", "persistence");
 async function cutSchemaMigration(opts) {
-  const migrationsDir = path7.join(opts.outDir, MIGRATIONS_REL_DIR);
-  const inflightPath = path7.join(migrationsDir, INFLIGHT_FILENAME2);
-  let inflightBody;
-  try {
-    inflightBody = await readFile5(inflightPath, "utf8");
-  } catch (err) {
-    if (isNotFound5(err)) {
-      return {
-        ok: false,
-        reason: "missing-inflight-file",
-        message: `no _inflight.sql at ${inflightPath}; run \`archascode render\` first`
-      };
+  const backends = await listSchemaChainBackends(opts.outDir, SRC_PERSISTENCE_PARENT_REL_DIR);
+  const bodies = /* @__PURE__ */ new Map();
+  let anyInflightFileFound = false;
+  for (const backend of backends) {
+    const migrationsDir = path8.join(opts.outDir, migrationsRelDir(backend));
+    const inflightPath = path8.join(migrationsDir, INFLIGHT_FILENAME2);
+    try {
+      bodies.set(backend, await readFile5(inflightPath, "utf8"));
+      anyInflightFileFound = true;
+    } catch (err) {
+      if (!isNotFound6(err)) throw err;
     }
-    throw err;
   }
-  if (!hasMeaningfulContent(inflightBody)) {
+  if (!anyInflightFileFound) {
+    return {
+      ok: false,
+      reason: "missing-inflight-file",
+      message: "no _inflight.sql under src/adapter/persistence/*/schema/migrations; run `archascode render` first"
+    };
+  }
+  const meaningfulBackends = backends.filter((b) => {
+    const body = bodies.get(b);
+    return body !== void 0 && hasMeaningfulContent(body);
+  });
+  if (meaningfulBackends.length === 0) {
     return {
       ok: false,
       reason: "no-inflight",
       message: "no in-flight changes; nothing to cut. Run `archascode render` after editing the spec to populate."
     };
   }
-  const slug = resolveSlug(opts.name, await readCachedSlug(opts.outDir));
+  const cachedSlug = await readCachedSlug(opts.outDir);
+  const slug = resolveSlug(opts.name, cachedSlug);
   const timestamp = formatTimestamp(opts.now ? opts.now() : /* @__PURE__ */ new Date());
   const finalFilename = `${timestamp}_${slug}.sql`;
-  const specMigrationsDir = path7.join(opts.outDir, SPEC_MIGRATIONS_REL_DIR2);
-  const specCutPath = path7.join(specMigrationsDir, finalFilename);
-  const projectedCutPath = path7.join(migrationsDir, finalFilename);
-  await mkdir6(specMigrationsDir, { recursive: true });
-  await writeFile4(specCutPath, inflightBody, "utf8");
-  await writeFile4(projectedCutPath, inflightBody, "utf8");
-  await writeFile4(inflightPath, EMPTY_INFLIGHT_BODY, "utf8");
-  return { ok: true, producedFilename: finalFilename };
+  const producedFilenames = [];
+  for (const backend of meaningfulBackends) {
+    const inflightBody = bodies.get(backend);
+    const migrationsDir = path8.join(opts.outDir, migrationsRelDir(backend));
+    const inflightPath = path8.join(migrationsDir, INFLIGHT_FILENAME2);
+    const specMigrationsDir = path8.join(opts.outDir, specMigrationsRelDir2(backend));
+    const specCutPath = path8.join(specMigrationsDir, finalFilename);
+    const projectedCutPath = path8.join(migrationsDir, finalFilename);
+    await mkdir6(specMigrationsDir, { recursive: true });
+    await writeFile4(specCutPath, inflightBody, "utf8");
+    await writeFile4(projectedCutPath, inflightBody, "utf8");
+    await writeFile4(inflightPath, EMPTY_INFLIGHT_BODY, "utf8");
+    producedFilenames.push(finalFilename);
+  }
+  return { ok: true, producedFilenames };
 }
 function hasMeaningfulContent(sql) {
   for (const rawLine of sql.split("\n")) {
@@ -649,31 +683,24 @@ function formatTimestamp(now) {
   const s = now.getUTCSeconds().toString().padStart(2, "0");
   return `${y}${mo}${d}${h}${mi}${s}`;
 }
-function isNotFound5(err) {
+function isNotFound6(err) {
   return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
 }
 
 // ../../../packages/core/src/cleanProject.ts
-import { readdir as readdir3, rm as rm3, stat as stat2 } from "node:fs/promises";
-import * as path8 from "node:path";
+import { readdir as readdir4, rm as rm3, stat as stat3 } from "node:fs/promises";
+import * as path9 from "node:path";
 var CLEAN_TARGETS = [
   "src",
-  path8.join("spec", "src"),
-  path8.join(".archascode", "manifest.json"),
+  path9.join("spec", "src"),
+  path9.join(".archascode", "manifest.json"),
   "aac.py",
   "docker-compose.yml"
 ];
-var SPEC_MIGRATIONS_REL_DIR3 = path8.join(
-  "spec",
-  "locked",
-  "adapter",
-  "persistence",
-  "sqlserver",
-  "schema",
-  "migrations"
-);
+var specMigrationsRelDir3 = (backend) => path9.join("spec", "locked", "adapter", "persistence", backend, "schema", "migrations");
 var INFLIGHT_FILENAME3 = "_inflight.sql";
 var CUT_FILENAME_RX = /^\d{14}_[a-z0-9_]+\.sql$/;
+var SPEC_PERSISTENCE_PARENT_REL_DIR2 = path9.join("spec", "locked", "adapter", "persistence");
 async function planClean(opts) {
   const hard = opts.hard ?? false;
   const targets = [];
@@ -681,17 +708,17 @@ async function planClean(opts) {
   if (hard) {
     const hardTargets = [
       ...CLEAN_TARGETS,
-      path8.join("spec", "locked")
+      path9.join("spec", "locked")
     ];
     for (const rel of hardTargets) {
-      if (await pathExists3(path8.join(opts.outDir, rel))) {
+      if (await pathExists3(path9.join(opts.outDir, rel))) {
         targets.push(rel);
       }
     }
-    const sealedCuts = await listSealedCuts(opts.outDir);
-    if (sealedCuts.length > 0) {
+    const sealedCutsByBackend = await listSealedCuts(opts.outDir);
+    for (const { backend, cuts } of sealedCutsByBackend) {
       warnings.push(
-        `${sealedCuts.length} sealed schema migration(s) under ${SPEC_MIGRATIONS_REL_DIR3} will be deleted (${sealedCuts.join(", ")}). The next render re-derives schema from zero.`
+        `${cuts.length} sealed schema migration(s) under ${specMigrationsRelDir3(backend)} will be deleted (${cuts.join(", ")}). The next render re-derives schema from zero.`
       );
     }
     const deployedEnvs = await listDeployedEnvironments(opts.outDir);
@@ -703,17 +730,17 @@ async function planClean(opts) {
   } else {
     const defaultTopTargets = [
       "src",
-      path8.join(".archascode", "manifest.json"),
+      path9.join(".archascode", "manifest.json"),
       "aac.py",
       "docker-compose.yml"
     ];
     for (const rel of defaultTopTargets) {
-      if (await pathExists3(path8.join(opts.outDir, rel))) {
+      if (await pathExists3(path9.join(opts.outDir, rel))) {
         targets.push(rel);
       }
     }
-    if (await pathExists3(path8.join(opts.outDir, "spec", "src"))) {
-      targets.push(path8.join("spec", "src"));
+    if (await pathExists3(path9.join(opts.outDir, "spec", "src"))) {
+      targets.push(path9.join("spec", "src"));
     }
   }
   return { targets, warnings };
@@ -724,17 +751,17 @@ async function cleanProject(opts) {
   if (hard) {
     const hardTargets = [
       ...CLEAN_TARGETS,
-      path8.join("spec", "locked")
+      path9.join("spec", "locked")
     ];
     for (const rel of hardTargets) {
-      const dest = path8.join(opts.outDir, rel);
+      const dest = path9.join(opts.outDir, rel);
       if (!await pathExists3(dest)) continue;
       await rm3(dest, { recursive: true, force: true });
       removed.push(rel);
     }
   } else {
     for (const rel of CLEAN_TARGETS) {
-      const dest = path8.join(opts.outDir, rel);
+      const dest = path9.join(opts.outDir, rel);
       if (!await pathExists3(dest)) continue;
       await rm3(dest, { recursive: true, force: true });
       removed.push(rel);
@@ -743,38 +770,44 @@ async function cleanProject(opts) {
   return { removed };
 }
 async function listSealedCuts(outDir) {
-  const dir = path8.join(outDir, SPEC_MIGRATIONS_REL_DIR3);
-  let entries;
-  try {
-    entries = await readdir3(dir);
-  } catch (err) {
-    if (isNotFound6(err)) return [];
-    throw err;
+  const backends = await listSchemaChainBackends(outDir, SPEC_PERSISTENCE_PARENT_REL_DIR2);
+  const out = [];
+  for (const backend of backends) {
+    const dir = path9.join(outDir, specMigrationsRelDir3(backend));
+    let entries;
+    try {
+      entries = await readdir4(dir);
+    } catch (err) {
+      if (isNotFound7(err)) continue;
+      throw err;
+    }
+    const cuts = entries.filter((name) => name !== INFLIGHT_FILENAME3 && CUT_FILENAME_RX.test(name)).sort();
+    if (cuts.length > 0) out.push({ backend, cuts });
   }
-  return entries.filter((name) => name !== INFLIGHT_FILENAME3 && CUT_FILENAME_RX.test(name)).sort();
+  return out;
 }
 async function listDeployedEnvironments(outDir) {
   const manifest = await readManifest(outDir);
   if (!manifest?.environments) return [];
-  return Object.entries(manifest.environments).filter(([, env]) => env.needsSqlserver).map(([name]) => name).sort();
+  return Object.entries(manifest.environments).filter(([, env]) => env.persistenceBackends.length > 0).map(([name]) => name).sort();
 }
 async function pathExists3(p) {
   try {
-    await stat2(p);
+    await stat3(p);
     return true;
   } catch (err) {
-    if (isNotFound6(err)) return false;
+    if (isNotFound7(err)) return false;
     throw err;
   }
 }
-function isNotFound6(err) {
+function isNotFound7(err) {
   return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
 }
 
 // ../../../packages/core/src/auth.ts
 import { chmod, mkdir as mkdir7, readFile as readFile6, rm as rm4, writeFile as writeFile5 } from "node:fs/promises";
 import * as os from "node:os";
-import * as path9 from "node:path";
+import * as path10 from "node:path";
 
 // ../../../packages/core/src/oauth/callbackServer.ts
 import { createServer } from "node:http";
@@ -1032,7 +1065,7 @@ function defaultCredentialsPath() {
   if (override) {
     return override;
   }
-  return path9.join(os.homedir(), ".archascode", "credentials.json");
+  return path10.join(os.homedir(), ".archascode", "credentials.json");
 }
 var CREDENTIALS_FILE_MODE = 384;
 async function cognitoRequest(region, target, body, fetcher) {
@@ -1058,7 +1091,7 @@ async function cognitoErrorDetail(res) {
   }
 }
 async function writeCredentials(credentialsPath, creds) {
-  await mkdir7(path9.dirname(credentialsPath), { recursive: true });
+  await mkdir7(path10.dirname(credentialsPath), { recursive: true });
   await writeFile5(credentialsPath, JSON.stringify(creds, null, 2) + "\n", {
     mode: CREDENTIALS_FILE_MODE
   });
@@ -1286,6 +1319,29 @@ async function logout(credentialsPath) {
   }
 }
 
+// ../../../packages/core/src/validate.ts
+import { mkdtemp, rm as rm5 } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import * as path11 from "node:path";
+async function validate(opts) {
+  const dir = await mkdtemp(path11.join(tmpdir(), "archascode-validate-"));
+  opts.onTempDir?.(dir);
+  try {
+    const outcome = await render({
+      specPath: opts.specPath,
+      outDir: dir,
+      cloudUrl: opts.cloudUrl,
+      ...opts.fetcher !== void 0 ? { fetcher: opts.fetcher } : {},
+      ...opts.authToken !== void 0 ? { authToken: opts.authToken } : {},
+      ...opts.clientSurface !== void 0 ? { clientSurface: opts.clientSurface } : {}
+    });
+    return outcome.ok ? { ok: true, ...outcome.warnings ? { warnings: outcome.warnings } : {} } : { ok: false, errors: outcome.errors };
+  } finally {
+    await rm5(dir, { recursive: true, force: true }).catch(() => {
+    });
+  }
+}
+
 // src/clean.ts
 async function runClean(input, io) {
   const plan = await planClean({ outDir: input.outDir, hard: input.hard ?? false });
@@ -1341,26 +1397,10 @@ async function runClean(input, io) {
 
 // src/deploy.ts
 import { spawn } from "node:child_process";
-import { readFile as readFile7, readdir as readdir4 } from "node:fs/promises";
-import * as path10 from "node:path";
-var INFLIGHT_REL_PATH = path10.join(
-  "src",
-  "adapter",
-  "persistence",
-  "sqlserver",
-  "schema",
-  "migrations",
-  "_inflight.sql"
-);
-var SPEC_MIGRATIONS_REL_DIR4 = path10.join(
-  "spec",
-  "locked",
-  "adapter",
-  "persistence",
-  "sqlserver",
-  "schema",
-  "migrations"
-);
+import { readFile as readFile7, readdir as readdir5 } from "node:fs/promises";
+import * as path12 from "node:path";
+var inflightRelPath = (backend) => path12.join("src", "adapter", "persistence", backend, "schema", "migrations", "_inflight.sql");
+var specMigrationsRelDir4 = (backend) => path12.join("spec", "locked", "adapter", "persistence", backend, "schema", "migrations");
 var CUT_FILENAME_RE = /^\d{14}_[a-z0-9_]+\.sql$/;
 async function runDeploy(input, io) {
   const { outDir, envName, baselineExisting, mode, planOut, upTo } = input;
@@ -1378,14 +1418,17 @@ async function runDeploy(input, io) {
 `
     );
   }
-  const inflightPath = path10.join(outDir, INFLIGHT_REL_PATH);
-  if (await inflightHasDelta(inflightPath)) {
-    io.stderr(
-      "archascode: uncommitted schema changes in _inflight.sql. Run 'aac cut-schema-migration' first.\n"
-    );
-    return 1;
+  const backends = env.persistenceBackends;
+  for (const backend of backends) {
+    const inflightPath = path12.join(outDir, inflightRelPath(backend));
+    if (await inflightHasDelta(inflightPath)) {
+      io.stderr(
+        "archascode: uncommitted schema changes in _inflight.sql. Run 'aac cut-schema-migration' first.\n"
+      );
+      return 1;
+    }
   }
-  const uncommitted = await uncommittedCuts(outDir);
+  const uncommitted = await uncommittedCuts(outDir, backends);
   if (uncommitted.length > 0) {
     io.stderr(
       `archascode: the following cut files are not committed to git:
@@ -1403,26 +1446,28 @@ async function inflightHasDelta(inflightPath) {
   try {
     body = await readFile7(inflightPath, "utf8");
   } catch (err) {
-    if (isNotFound7(err)) return false;
+    if (isNotFound8(err)) return false;
     throw err;
   }
   return hasMeaningfulContent(body);
 }
-async function uncommittedCuts(outDir) {
-  const cutsDir = path10.join(outDir, SPEC_MIGRATIONS_REL_DIR4);
-  let entries;
-  try {
-    entries = await readdir4(cutsDir);
-  } catch (err) {
-    if (isNotFound7(err)) return [];
-    throw err;
-  }
-  const cutFiles = entries.filter((name) => CUT_FILENAME_RE.test(name)).sort();
+async function uncommittedCuts(outDir, backends) {
   const offending = [];
-  for (const name of cutFiles) {
-    const rel = path10.join(SPEC_MIGRATIONS_REL_DIR4, name);
-    if (!await isPathClean(outDir, rel)) {
-      offending.push(rel);
+  for (const backend of backends) {
+    const cutsDir = path12.join(outDir, specMigrationsRelDir4(backend));
+    let entries;
+    try {
+      entries = await readdir5(cutsDir);
+    } catch (err) {
+      if (isNotFound8(err)) continue;
+      throw err;
+    }
+    const cutFiles = entries.filter((name) => CUT_FILENAME_RE.test(name)).sort();
+    for (const name of cutFiles) {
+      const rel = path12.join(specMigrationsRelDir4(backend), name);
+      if (!await isPathClean(outDir, rel)) {
+        offending.push(rel);
+      }
     }
   }
   return offending;
@@ -1490,7 +1535,7 @@ async function runCommand(cmd, args, cwd) {
     child.on("exit", (code) => resolve2({ code: code ?? 0, stdout, stderr }));
   });
 }
-function isNotFound7(err) {
+function isNotFound8(err) {
   return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
 }
 
@@ -1500,6 +1545,7 @@ var USAGE = `archascode \u2014 local CLI
 
 Usage:
   archascode render [<spec-path>] [--out <dir>] [--cloud-url <url>] [--json]
+  archascode validate [<spec-path>] [--cloud-url <url>] [--json]
   archascode login [--cloud-url <url>] [--password] [--username <name>]
   archascode logout
   archascode record-handoff --id <handoff-id> --hash <contract-hash> [--out <dir>]
@@ -1531,8 +1577,9 @@ Options:
                       render schema:  { ok, filesWritten, filesRemoved,
                                         handoff: { resolved, pending } } |
                                       { ok: false, errors }.
+                      validate schema: { ok: true } | { ok: false, errors }.
                       cut-schema-migration schema:
-                                      { ok: true, producedFilename } |
+                                      { ok: true, producedFilenames } |
                                       { ok: false, reason, message }.
                       clean schema:   { ok: true, removed, warnings } |
                                       { ok: false, reason: "aborted" }.
@@ -1588,6 +1635,15 @@ db plan  \u2014 read-only preview: connects to the target, computes the true
 
 db apply \u2014 execute verb (formerly \`archascode deploy\`): behaviorally
            identical to the old deploy command in every respect.
+
+validate \u2014 checks spec/architecture.yml against the full engine surface
+           (schema + Pydantic + plan-time checks) and writes nothing into
+           your project. It is a NETWORK CALL to the archascode cloud
+           service, not a local lint \u2014 it needs \`archascode login\`.
+           It validates the SPEC, not the project: it runs with no prior
+           migrations and never reads .archascode/manifest.json, so a
+           render can still fail on migration or manifest state that
+           validate cannot see.
 
 clean (default): resets the regenerable surface (src/, aac.py,
 docker-compose.yml, .archascode/manifest.json, and spec/src/ wholesale).
@@ -1648,6 +1704,9 @@ ${USAGE}`);
   }
   if (command === "render") {
     return await runRender(values, rest);
+  }
+  if (command === "validate") {
+    return await runValidate(values, rest);
   }
   if (command === "login") {
     return await runLogin(values, rest, defaultAuthCliDeps());
@@ -1747,6 +1806,85 @@ ${USAGE}` : `render: spec not found at ${specPath}
   process.stdout.write(
     `wrote ${outcome.filesWritten.length} file(s) to ${outDir}` + (outcome.filesRemoved.length > 0 ? ` (removed ${outcome.filesRemoved.length} stale)` : "") + (outcome.handoff.pending.length > 0 ? ` (${outcome.handoff.pending.length} pending hand-off${outcome.handoff.pending.length === 1 ? "" : "s"})` : "") + "\n"
   );
+  if (outcome.warnings) {
+    for (const w of outcome.warnings) {
+      process.stderr.write(`${w}
+`);
+    }
+  }
+  return 0;
+}
+async function runValidate(values, rest) {
+  const specPath = rest[0] ?? DEFAULT_SPEC_PATH;
+  const usedDefault = rest[0] === void 0;
+  try {
+    await access3(specPath);
+  } catch {
+    process.stderr.write(
+      usedDefault ? `validate: no spec at default path ${DEFAULT_SPEC_PATH}; pass an explicit <spec-path>
+
+${USAGE}` : `validate: spec not found at ${specPath}
+`
+    );
+    return 2;
+  }
+  const wantJson = Boolean(values.json);
+  const creds = await readCredentials();
+  const cloudUrl = resolveCloudUrl({
+    explicit: values["cloud-url"],
+    env: process.env.ARCHASCODE_DEV_CLOUD_URL,
+    credentials: creds?.cloudUrl
+  });
+  if (cloudUrl === null) {
+    process.stderr.write(
+      "validate failed: not logged in to archascode\nhint: run `archascode login`\n"
+    );
+    return 2;
+  }
+  const authToken = isLocalDevOrigin(cloudUrl) ? void 0 : await getAuthToken() ?? void 0;
+  if (!wantJson) {
+    process.stderr.write(`validating ${specPath}
+`);
+  }
+  let outcome;
+  try {
+    outcome = await validate({
+      specPath,
+      cloudUrl,
+      clientSurface: "cli",
+      ...authToken !== void 0 ? { authToken } : {}
+    });
+  } catch (err) {
+    let msg = `validate failed: ${err.message}`;
+    if (err instanceof CloudRequestError && err.status === 401) {
+      msg += "\nhint: run `archascode login`";
+    }
+    if (err instanceof CloudRequestError && err.status === 426) {
+      msg += "\nhint: update your archascode install \u2014 run `/plugin marketplace update archascode`, then `/reload-plugins`";
+    }
+    if (wantJson) {
+      process.stdout.write(
+        JSON.stringify({ ok: false, errors: [msg] }) + "\n"
+      );
+    } else {
+      process.stderr.write(`${msg}
+`);
+    }
+    return 1;
+  }
+  if (wantJson) {
+    process.stdout.write(JSON.stringify(outcome) + "\n");
+    return outcome.ok ? 0 : 1;
+  }
+  if (!outcome.ok) {
+    process.stderr.write("spec rejected by cloud:\n");
+    for (const e of outcome.errors) {
+      process.stderr.write(`  - ${e}
+`);
+    }
+    return 1;
+  }
+  process.stdout.write("spec OK\n");
   if (outcome.warnings) {
     for (const w of outcome.warnings) {
       process.stderr.write(`${w}
@@ -1943,7 +2081,7 @@ async function runCutSchemaMigration(values) {
 `);
     return 3;
   }
-  process.stdout.write(`cut migration ${outcome.producedFilename}
+  process.stdout.write(`cut migration ${outcome.producedFilenames.join(", ")}
 `);
   return 0;
 }
