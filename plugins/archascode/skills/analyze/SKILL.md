@@ -225,8 +225,8 @@ schema wins and this file is stale.
 CI-verified fixtures (not hand-written prose), one per construct family:
 
 - `01-minimal-crud` — smallest complete spec.
-- `02-crm-lite` — realistic mid-size: relationships, invariants, enums,
-  a value object, ports.
+- `02-rental-booking` — realistic mid-size: relationships, invariants,
+  a value object, a mutating `use_case` method.
 - `03-value-objects-enums` — simple/composite value objects, enums.
 - `04-entity-methods` — method shapes, `use_case` promotion.
 - `05-invariants-derived` — derived attributes, `None` propagation.

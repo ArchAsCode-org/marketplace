@@ -6,7 +6,7 @@ CI-verified test fixtures. Read them in order — each adds language.
 | Example | Demonstrates |
 |---|---|
 | `01-minimal-crud` | Smallest complete spec |
-| `02-crm-lite` | Realistic mid-size: relationships, invariants, enums, VO, ports |
+| `02-rental-booking` | Realistic mid-size: relationships, invariants, VO, mutating use_case method |
 | `03-value-objects-enums` | Simple/composite VOs, enums |
 | `04-entity-methods` | Method shapes, use_case promotion |
 | `05-invariants-derived` | Derived attributes, None propagation |

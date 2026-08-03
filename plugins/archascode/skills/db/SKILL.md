@@ -7,12 +7,13 @@ description: Preview or apply pending schema cuts for a rendered archascode cons
 
 Thin wrapper over the `archascode db` CLI verb family (`plan` and
 `apply`). The CLI does all the real work — verify the env exists in the
-manifest, check `_inflight.sql` is empty, check every cut file under
-`spec/locked/.../migrations/` is committed to git, then either preview
-(`plan`) or spawn `python aac.py --env <name> migrate` (`apply`). This
-skill exists so the user can pick the env (or accept the default) and
-choose preview-vs-mutate from a Claude session without switching to a
-terminal.
+manifest, check every cut file under `spec/locked/.../migrations/` is
+committed to git, then either preview (`plan`) or spawn `python aac.py
+--env <name> migrate` (`apply`). Both verbs stay cloud-free (ADR 088
+D4); this skill adds a non-blocking advisory preflight of its own before
+`apply` (see below). This skill exists so the user can pick the env (or
+accept the default) and choose preview-vs-mutate from a Claude session
+without switching to a terminal.
 
 ## Arguments
 
@@ -109,6 +110,34 @@ nothing), so it simply resolves the env and proceeds.
 
 Per env resolution above.
 
+#### Step 1a — advisory `cut --dry-run` preflight (non-blocking)
+
+Before invoking apply, run:
+
+```bash
+archascode cut-schema-migration --dry-run --json
+```
+
+- Exit 0 with `{ "ok": true, "dryRun": true, "cuts": […] }` where
+  `cuts` is non-empty — pending un-cut spec changes exist. Tell the
+  user, e.g.: `heads up: there are pending schema changes not yet cut
+  (run /archascode:cut-schema-migration first if you want them
+  included)`. This is advisory only — proceed to apply if the user
+  says to.
+- Exit 0 with an empty `cuts` list, or exit 3 with `"reason":
+  "no-delta"` — verified: nothing pending; proceed silently.
+- Exit 2 (not logged in), exit 1 (cloud unreachable / call failed), or
+  a JSON parse failure — the check could not run: include one passing
+  informational line in your narration, e.g. `note: skipped the
+  pending-changes preflight (not logged in) — couldn't verify there are
+  no un-cut schema changes`, and proceed straight to apply. This is a
+  mention, and never a question — apply proceeds without waiting for a
+  response; the preflight is not a precondition of `apply`. (Silence
+  means "verified clean"; the note marks "unverified".)
+- Exit 3 with `"reason": "not-rendered"` — proceed silently; `apply`'s
+  own precondition will report the un-rendered project with its
+  authoritative message.
+
 #### Step 2 — invoke apply
 
 ```bash
@@ -120,9 +149,9 @@ The CLI streams its own output (it inherits stdio for the inner
 do not capture or reformat. Exit codes:
 
 - `0` — deploy succeeded. Print one line: `deployed to <env-name>`.
-- `1` — precondition failed (uncommitted `_inflight.sql`, uncommitted
-  cut files) **or** the underlying `aac.py migrate` failed. The CLI
-  has already printed the specific reason; do not editorialise.
+- `1` — precondition failed (uncommitted cut files) **or** the
+  underlying `aac.py migrate` failed. The CLI has already printed the
+  specific reason; do not editorialise.
 - `2` — env not found in manifest. Surface the CLI's message verbatim.
   Re-prompting from a stale name is not the skill's job; the user
   re-invokes with a correct name.
@@ -168,10 +197,11 @@ On a nonzero exit, surface the CLI's message and stop (no closing line).
 ## What this skill does NOT do
 
 - **Render or cut migrations.** Both `plan` and `apply` assume the
-  project is already rendered and any pending DDL has been cut. If
-  `_inflight.sql` is non-empty, the CLI exits 1 printing
-  `Run 'aac cut-schema-migration' first.` — surface it and point the
-  user at `/archascode:cut-schema-migration`.
+  project is already rendered. Pending un-cut DDL is surfaced only by
+  the advisory `cut --dry-run` preflight above (non-blocking) — `plan`
+  and `apply` themselves do not check for it (ADR 088 D4). If the
+  preflight flags pending changes, point the user at
+  `/archascode:cut-schema-migration`.
 - **Commit cut files for the user.** Uncommitted cuts under
   `spec/locked/.../migrations/` are an exit-1 from the CLI. The user
   commits and re-invokes.

@@ -1,0 +1,58 @@
+schema_version: "1.0"
+metadata:
+  name: rental-booking
+  description: Equipment rental tracking for a small rental shop.
+  version: "0.1.0"
+
+domain:
+  value_objects:
+    Money:
+      type: Decimal
+      validation: {precision: 12, scale: 2, min: 0}
+
+  entities:
+    Customer:
+      attributes:
+        id: {type: UUID}
+        name: {type: str}
+        created_at: {type: datetime, generated: true}
+        updated_at: {type: datetime, generated: true}
+      relationships:
+        rentals: {entity: Rental, cardinality: one-to-many}
+
+    Item:
+      attributes:
+        id: {type: UUID}
+        name: {type: str}
+        daily_rate: {type: Money}
+        created_at: {type: datetime, generated: true}
+        updated_at: {type: datetime, generated: true}
+      relationships:
+        rentals: {entity: Rental, cardinality: one-to-many}
+
+    Rental:
+      description: A booking of one item to one customer over a date range.
+      attributes:
+        id: {type: UUID}
+        due_at: {type: datetime}
+        returned_at: {type: datetime, required: false}
+        late_fee: {type: Money, required: false}
+        condition_notes: {type: text, required: false}
+        created_at: {type: datetime, generated: true}
+        updated_at: {type: datetime, generated: true}
+      relationships:
+        customer: {entity: Customer, cardinality: many-to-one, on_delete: restrict, required: true}
+        item: {entity: Item, cardinality: many-to-one, on_delete: cascade, required: true}
+      invariants:
+        returned_implies_fee_set: "returned_at is None or late_fee is not None"
+        fee_only_when_returned: "late_fee is None or returned_at is not None"
+      methods:
+        return_item:
+          description: >-
+            Mark the rental returned, stamping returned_at and computing
+            late_fee from due_at vs. now, without the caller supplying
+            either.
+          mutable: true
+          parameters:
+            condition_notes: {type: text, required: false}
+          use_case: true
