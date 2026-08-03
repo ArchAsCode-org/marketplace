@@ -134,10 +134,26 @@ From inside the plugin, you can run API Explorer to see launch and explore the A
 
 ## 7. Updating
 
-When a new version is announced, from any Claude Code session:
+When a new version is announced (or a command reports "client too old /
+update your archascode install"), from any Claude Code session:
 
-1. `/plugin marketplace update archascode`
-2. `/reload-plugins`
+1. `/plugin marketplace update archascode` — fetches the new version.
+2. `/plugin update archascode@archascode` — **activates** it. (Or open
+   `/plugins` → **Installed** → archascode → **Update now**.)
+3. Start a new Claude Code session — sessions keep the version they
+   started with.
+
+Step 2 is required: the marketplace update alone only refreshes the
+catalog — your installed plugin stays on the old version even after
+`/reload-plugins` or a full restart, and the `/plugins` panel may show
+the new version number while sessions still run the old one.
+
+**If you still see old behavior in a new session**, do a clean
+reinstall (this always works):
+
+1. `/plugin uninstall archascode@archascode`
+2. `/plugin marketplace update archascode`
+3. `/plugin install archascode@archascode`
 
 If the extension was updated too, re-download the `.vsix` and repeat
-step 3.
+step 3 of the install instructions above.
