@@ -237,7 +237,7 @@ Then write `snapshots/manifest.json` with:
 
 ```json
 {
-  "schemaTimestamp": "<read from .archascode/manifest.json schema.sqlserver.initialTimestamp, or '' if absent>",
+  "schemaTimestamp": "<computed via the rendered codec's _compute_schema_identifier(project_root) — see the fingerprint pattern below; '' when no cut migrations exist>",
   "entityFingerprints": {
     "<Entity>": "<16-char hex from compute_entity_fingerprint(<E>State)>",
     ...
@@ -248,10 +248,20 @@ Then write `snapshots/manifest.json` with:
 }
 ```
 
-`schemaTimestamp` matters for the SQL Server binding — the codec's
-`verify_schema` will refuse to load a snapshot whose timestamp doesn't
-match the current schema. For memory binding the field is empty and
-verification is skipped.
+`schemaTimestamp` matters for a SQL binding (sqlserver or postgres) —
+the codec's `verify_schema` will refuse to load a snapshot whose
+identifier doesn't match the current schema. Despite the name it is no
+longer a manifest timestamp (that manifest section was removed by ADR
+087): it is `sha256[:16]` of the project's sorted cut-migration
+filename set, computed by the rendered codec's
+`_compute_schema_identifier(project_root)` (union-glob over
+`src/adapter/persistence/*/schema/migrations`, ADR 092). Import it
+from `src.adapter.persistence._codec` alongside
+`compute_entity_fingerprint` in the pattern below and set `schema_ts`
+from it — the hash algorithm is pinned in the rendered codec, so
+computing it by hand is as wrong as hand-computing fingerprints. For
+memory binding, and for a SQL project with no cut migrations yet, it
+returns `''` and verification is skipped.
 
 `entityFingerprints` is required by `verify_fingerprints` (ADR 015).
 **Do not compute the hash by hand** — the algorithm (sha256 over a
@@ -269,7 +279,12 @@ project's venv and its `src.*` imports resolve):
 import json
 from datetime import datetime
 from pathlib import Path
-from src.adapter.persistence._codec import compute_entity_fingerprint
+from src.adapter.persistence._codec import (
+    _compute_schema_identifier,
+    compute_entity_fingerprint,
+)
+
+schema_ts = _compute_schema_identifier(Path.cwd())
 
 # load_order is the topo-sorted list built in step 3.
 fingerprints = {}
@@ -349,7 +364,7 @@ Next: POST /admin/snapshot/load (or restart the API from the API Explorer to aut
 | LLM produces invalid JSON                              | Drop the entity's batch; continue with others; report at the end.                       |
 | >50% of an entity's records fail validation            | Stop; print the prompt and the offending output for the user to inspect.                |
 | `snapshots/` already exists                            | Prompt: overwrite / merge / cancel. Default to cancel on non-interactive contexts.      |
-| schemaTimestamp absent from `.archascode/manifest.json` | Write `""`; loader will skip verification (matches memory-binding behavior).            |
+| `_compute_schema_identifier` returns `""` (no cuts yet) | Write `""`; loader will skip verification (matches memory-binding behavior).            |
 | `compute_entity_fingerprint` missing from rendered codec | Stop. Project predates ADR 015 — user must re-render with the current engine.           |
 | `<E>State` not importable from `src.domain.entities.*`  | Stop. Likely an `/archascode:apply` step was skipped; tell the user to re-render.              |
 

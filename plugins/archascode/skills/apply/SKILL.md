@@ -130,6 +130,7 @@ For each item in `handoff.pending`:
      (format `entity_adapter:<Entity>:<adapter_id>`):
      - `memory` → see "Brief: entity_adapter (memory)" below.
      - `sqlserver` → see "Brief: entity_adapter (sqlserver)" below.
+     - `postgres` → see "Brief: entity_adapter (postgres)" below.
 
    - `entity_method` — the domain-method body hand-off (ADR 039). One
      hand-off per declared entity method, promoted or not. The `item.id`
@@ -500,6 +501,30 @@ Constraints:
 - Save the file when done. Do not modify spec/architecture.yml or any
   file under src/.
 ```
+
+## Brief: entity_adapter (postgres)
+
+For a pending `entity_adapter` item whose `id` ends in `:postgres`,
+use the sqlserver brief above with the postgres substitutions — the
+seeded overlay has the same dual-tree shape and the same CRUD/hydration
+skeleton (ADR 092's repository is written from the SQL Server one):
+
+- Opening line: `You are implementing a Postgres repository extension
+  method for archascode.`
+- Class: `Postgres<Entity>Repository`; `get_connection()` yields a
+  `psycopg.Connection`.
+- Placeholders are the same `%s` DBAPI paramstyle (ADR 092 C5).
+- Pass UUID values as `str(value)` in parameter tuples. Decimal values
+  pass through natively — psycopg adapts `Decimal` to `NUMERIC`
+  directly, so the pymssql `float(...)` accommodation line is dropped.
+- Integrity errors: catch `psycopg.errors` via the file's
+  `_handle_integrity_error(e)` funnel, which branches on `e.sqlstate`
+  (`23505` duplicate-key, `23503` FK-violation) — only when the
+  method's docstring expects a domain-error translation; otherwise let
+  it propagate.
+
+Everything else (spec-description intent lookup, re-open addendum,
+constraints block) is identical to the sqlserver brief.
 
 ## Brief: claims_mapper (ADR 024)
 
@@ -915,10 +940,11 @@ inspecting whatever the sub-agent did (or didn't) do.
 
 Implemented kinds (as of ADR 046):
 - `entity_adapter` — per-adapter hand-off for an ejected entity (with
-  `memory` and `sqlserver` adapter-id variants). A `readonly` entity with
-  no `repo_port_extensions` is seeded complete (no `NotImplementedError`):
-  record + re-render without dispatching — same shape as the claims-mapper
-  SKIP path. See "Brief: entity_adapter (memory/sqlserver)" above.
+  `memory`, `sqlserver`, and `postgres` adapter-id variants). A `readonly`
+  entity with no `repo_port_extensions` is seeded complete (no
+  `NotImplementedError`): record + re-render without dispatching — same
+  shape as the claims-mapper SKIP path. See "Brief: entity_adapter
+  (memory/sqlserver/postgres)" above.
 - `entity_method` — domain-method body hand-off (ADR 039). One hand-off
   per declared entity method; the pending/resolved/record loop is reused
   as-is. See "Brief: entity_method" above.

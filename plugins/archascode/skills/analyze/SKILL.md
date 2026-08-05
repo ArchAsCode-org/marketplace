@@ -112,8 +112,8 @@ anything this summary gets wrong.
   `version: "0.1.0"`, `description`), `domain`, and `api` when auth is
   on. **Omit `adapters`, `port_bindings`, and `environments`
   entirely** — the engine defaults to the memory binding, which is the
-  fastest path to a running app; switching to sqlserver later is
-  `/archascode:wire persistence`.
+  fastest path to a running app; switching to a real database
+  (sqlserver or postgres) later is `/archascode:wire persistence`.
 - **Entities**: `domain.entities.<PascalName>` with `description` and
   `attributes` (required key). Give every entity `id: {type: UUID}`
   plus `created_at`/`updated_at` as `{type: datetime, generated: true}`
@@ -133,7 +133,10 @@ anything this summary gets wrong.
   override. `on_delete: cascade` for owned children, `restrict` for
   references — keeping **at most one cascading path into any entity**:
   SQL Server rejects a table reachable by two cascade routes from the
-  same ancestor (error 1785; `set_null` counts as cascading too). When
+  same ancestor (error 1785; `set_null` counts as cascading too), and
+  the engine fails such a render on the sqlserver backend (ADR 089).
+  Postgres allows cascade diamonds, but keep the single-path shape
+  anyway — it costs nothing and the spec stays portable. When
   a child has several cascading parents that are themselves linked by a
   cascade (e.g. an Activity under both Company and Contact, where
   Company already cascades to Contact), cascade only the nearest parent

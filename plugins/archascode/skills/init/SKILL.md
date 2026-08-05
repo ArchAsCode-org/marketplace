@@ -38,6 +38,7 @@ What this skill installs:
 
 - **Always:** `fastapi>=0.110`, `pydantic>=2.0`, `uvicorn[standard]>=0.27`
 - **`adapters.persistence.sqlserver` present:** add `pymssql>=2.3.0`.
+- **`adapters.persistence.postgres` present:** add `psycopg[binary]>=3.2`.
 - **`jwt_bearer` auth adapter selected anywhere:** add `pyjwt[crypto]>=2.8`.
   "Selected anywhere" means `adapters.auth.id == "jwt_bearer"` OR any
   `port_bindings.<lens>.app_adapters.auth == "jwt_bearer"` — a binding
@@ -129,9 +130,9 @@ mode — the dependency-computation logic below and the `environments:`
 scaffold check both operate on that same loaded object, so a spec write
 (if any) and the `pyproject.toml` dependency decisions can never observe
 different content. The script prints two shell-readable lines on stdout
-as debug breadcrumbs: `HAS_SQLSERVER=0|1` (the sqlserver-dep decision)
-and `ENV_SCAFFOLDED=0|1` (whether the `environments:` scaffold was
-written).
+as debug breadcrumbs: `HAS_SQLSERVER=0|1` / `HAS_POSTGRES=0|1` (the
+SQL-driver-dep decisions) and `ENV_SCAFFOLDED=0|1` (whether the
+`environments:` scaffold was written).
 
 ```bash
 PY_OUT=$(uv run --no-project --with 'ruamel.yaml' python - <<'PY'
@@ -149,6 +150,7 @@ name = "archascode-project"
 version = "0.0.0"
 description = ""
 has_sqlserver = False
+has_postgres = False
 has_jwt_bearer = False
 env_scaffolded = False
 
@@ -170,6 +172,7 @@ if os.path.exists("spec/architecture.yml"):
     version = meta.get("version") or version
     description = toml_escape(meta.get("description"))
     has_sqlserver = "sqlserver" in adapters
+    has_postgres = "postgres" in adapters
 
     # jwt_bearer can be the spec-level default auth adapter OR an override
     # in any binding's app_adapters.auth (the binding override wins even
@@ -202,6 +205,8 @@ deps = [
 ]
 if has_sqlserver:
     deps.append('"pymssql>=2.3.0",')
+if has_postgres:
+    deps.append('"psycopg[binary]>=3.2",')
 if has_jwt_bearer:
     deps.append('"pyjwt[crypto]>=2.8",')
 deps_block = "\n".join(f"    {d}" for d in deps)
@@ -232,6 +237,7 @@ with open("pyproject.toml", "w") as f:
     f.write(content)
 
 print("HAS_SQLSERVER=1" if has_sqlserver else "HAS_SQLSERVER=0")
+print("HAS_POSTGRES=1" if has_postgres else "HAS_POSTGRES=0")
 print("ENV_SCAFFOLDED=1" if env_scaffolded else "ENV_SCAFFOLDED=0")
 PY
 ) || { echo "Failed to write pyproject.toml. Aborting." >&2; exit 1; }
@@ -240,6 +246,7 @@ PY
 Then print one line:
 
 - sqlserver detected → `✓ pyproject.toml written (sqlserver → pymssql + aac script)`
+- postgres detected  → `✓ pyproject.toml written (postgres → psycopg + aac script)`
 - otherwise        → `✓ pyproject.toml written (base deps)`
 
 Then, if `ENV_SCAFFOLDED=1` appeared in `PY_OUT`, print:

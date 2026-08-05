@@ -1,6 +1,6 @@
 ---
 name: wire
-description: Wire real adapters into an archascode consuming project — an interview that writes the persistence stratum (adapters.persistence.sqlserver, per-entity opt-ins, environments) into spec/architecture.yml, validates via a scratch render, and pre-seeds the new envs' .env.<env>.example files. Bare invocation reports current wiring. Use after the in-memory first run, when the user is ready for a real database.
+description: Wire real adapters into an archascode consuming project — an interview that writes the persistence stratum (adapters.persistence.sqlserver or .postgres, per-entity opt-ins, environments) into spec/architecture.yml, validates via a scratch render, and pre-seeds the new envs' .env.<env>.example files. Bare invocation reports current wiring. Use after the in-memory first run, when the user is ready for a real database.
 ---
 
 # /archascode:wire
@@ -65,11 +65,13 @@ Report mode needs only the spec file.
 
 Read `spec/architecture.yml` and print, in order:
 
-1. **Persistence** — `memory (by omission)` when
-   `adapters.persistence.sqlserver` is absent; otherwise `sqlserver`,
-   with entity coverage: `N of M entities carry adapters.sqlserver`,
-   naming the exceptions (they resolve to memory inside the auto
-   sqlserver binding — deliberate mixed storage, or an oversight).
+1. **Persistence** — `memory (by omission)` when neither
+   `adapters.persistence.sqlserver` nor `adapters.persistence.postgres`
+   is present; otherwise the declared backend name (`sqlserver` or
+   `postgres` — ADR 092 exclusivity means at most one), with entity
+   coverage: `N of M entities carry adapters.<backend>`, naming the
+   exceptions (they resolve to memory inside the auto backend binding —
+   deliberate mixed storage, or an oversight).
 2. **Environments** — a table of `name / port_binding / compute /
    data`, marking `default_environment`. A spec with none (pre-ADR-070
    floor) gets: `no environments declared — /archascode:init will scaffold dev (memory)`.
@@ -94,10 +96,13 @@ command -v archascode >/dev/null 2>&1 || echo "archascode CLI not on PATH — th
 
 ### Step 2 — already-wired check
 
-If `adapters.persistence.sqlserver` is already present in the spec,
-print the report-mode output followed by
+If `adapters.persistence.sqlserver` **or** `adapters.persistence.postgres`
+is already present in the spec, print the report-mode output followed by
 `persistence is already wired — edit spec/architecture.yml by hand to change it (re-wire mode is a future version)`
-and stop. v1 wires exactly once.
+and stop. v1 wires exactly once. This check is also the exclusivity
+guard: a project declares **one** SQL backend (ADR 092) — writing a
+second would fail the very next parse, so switching backends is a hand
+edit that *replaces* the declared key, never a second wire run.
 
 ### Step 3 — baseline render (green-before-edit)
 
@@ -123,15 +128,16 @@ At most **four** questions, asked once — never mid-write. `--context`
 answers skip their question. Defaults are marked; in a non-interactive
 context take every default.
 
-1. **Backend** — a two-option question with `label` only:
-   `SQL Server` and `Postgres`. Leave each option's `description` field
-   empty (`""`) — do not put "supported"/"not supported yet"/"coming
-   soon" wording there or anywhere else in the question. The chooser
-   must not learn Postgres is unsupported until *after* picking it.
-   Everything about support happens *after* the choice: on Postgres,
-   print `the Postgres adapter isn't supported yet — coming soon`, then
-   offer to continue with SQL Server or stop; stopping writes nothing.
-   SQL Server is the non-interactive default.
+1. **Backend** — a two-option question: `SQL Server` and `Postgres`
+   (both fully supported since ADR 092). Keep each option's
+   `description` neutral — a one-liner on the runtime shape at most
+   (`pymssql driver, mcr mssql container` / `psycopg driver,
+   postgres:16 container`); the choice is the user's, on their own
+   grounds. The answer sets `<backend>` (`sqlserver` | `postgres`) for
+   every later step: the adapter key, entity opt-ins, env
+   `port_binding`, and the summary. SQL Server is the non-interactive
+   default. Exclusivity (ADR 092) means this choice is exhaustive —
+   one SQL backend per project.
 2. **Topology** — `local docker only` *(default)*, `docker + an
    external server env`, or `external only`. The docker env is named
    `docker`; when an external env is chosen, ask its name (default
@@ -145,7 +151,7 @@ context take every default.
 4. **Mixed storage** — any entities that should stay memory-only
    (ephemeral sessions, caches)? *(default: none — every entity
    persists.)* Excluded entities simply don't get the adapter and fall
-   back to memory inside the auto sqlserver binding; no `port_bindings`
+   back to memory inside the auto backend binding; no `port_bindings`
    block is needed or written.
 
 Not a question: `default_environment` stays exactly as it is (normally
@@ -176,12 +182,16 @@ yaml.width = 4096
 with open("spec/architecture.yml") as f:
     spec = yaml.load(f)
 
+BACKEND = "sqlserver"  # <- interview answer 1: "sqlserver" | "postgres"
+DEFAULT_PORT = {"sqlserver": 1433, "postgres": 5432}[BACKEND]
+
 # 1. Adapter declaration — canonical env-var block (values live in
-#    .env.<env>, never in the spec).
-spec.setdefault("adapters", {}).setdefault("persistence", {})["sqlserver"] = {
+#    .env.<env>, never in the spec). Same shape for both backends;
+#    only the default port differs.
+spec.setdefault("adapters", {}).setdefault("persistence", {})[BACKEND] = {
     "env": {
         "host": "DB_HOST",
-        "port": "DB_PORT:1433",
+        "port": f"DB_PORT:{DEFAULT_PORT}",
         "database": "DB_NAME",
         "username": "DB_USER",
         "password": "DB_PASSWORD",
@@ -193,14 +203,15 @@ spec.setdefault("adapters", {}).setdefault("persistence", {})["sqlserver"] = {
 EXCLUDE = set()  # <- interview answer 4
 for name, entity in spec["domain"]["entities"].items():
     if name not in EXCLUDE:
-        entity.setdefault("adapters", {})["sqlserver"] = {}
+        entity.setdefault("adapters", {})[BACKEND] = {}
 
 # 3. Environments — append only; existing envs (dev included) are
-#    never edited. Shape per the interview:
+#    never edited. Shape per the interview (the auto port binding is
+#    named after the backend):
 envs = spec.setdefault("environments", {})
-envs["docker"] = {"port_binding": "sqlserver", "compute": "docker", "data": "ephemeral"}
+envs["docker"] = {"port_binding": BACKEND, "compute": "docker", "data": "ephemeral"}
 # external env, when chosen:
-# envs["prod"] = {"port_binding": "sqlserver", "compute": "external", "data": "protected"}
+# envs["prod"] = {"port_binding": BACKEND, "compute": "external", "data": "protected"}
 
 # Never: default_environment, port_bindings, existing environments.
 
@@ -221,7 +232,8 @@ is the user's review surface and `git checkout` the undo.
 ### Step 7 — pre-seed `.env.<env>.example` for the new envs
 
 The green scratch tree contains the engine-authored per-env templates
-(ADR 055 — the docker one carries `DB_USER=sa`). Copy them out for
+(ADR 055 — the docker one carries the container's superuser login:
+`DB_USER=sa` for sqlserver, `DB_USER=postgres` for postgres). Copy them out for
 **exactly the environments this run created**, and only when absent at
 the project root:
 
@@ -244,15 +256,18 @@ resurrect an example the user deliberately deleted.
 
 ### Step 8 — summarize with a posture-aware chain
 
+Substitute the chosen backend throughout (`sqlserver → pymssql`,
+`postgres → psycopg`; superuser `sa` / `postgres`):
+
 ```
-✓ spec/architecture.yml — sqlserver wired: N entities (M memory-only), envs added: docker (ephemeral), prod (protected) (validated in K render pass(es))
+✓ spec/architecture.yml — <backend> wired: N entities (M memory-only), envs added: docker (ephemeral), prod (protected) (validated in K render pass(es))
 ✓ .env.docker.example, .env.prod.example pre-seeded
 default_environment unchanged: dev (memory)
 
 Next:
-1. /archascode:init                       # adapter set changed → pymssql
-2. /archascode:apply                      # render: docker-compose.yml, schema DDL, sqlserver adapters
-3. cp .env.docker.example .env.docker     # DB_USER=sa already set
+1. /archascode:init                       # adapter set changed → <driver>
+2. /archascode:apply                      # render: docker-compose.yml, schema DDL, <backend> adapters
+3. cp .env.docker.example .env.docker     # DB_USER=<superuser> already set
 4. API Explorer → select env 'docker'     # ephemeral: start owns the schema (ADR 052)
 ```
 
@@ -279,13 +294,16 @@ them (family rule).
 - **Wire auth.** The `auth` target is reserved; posture stays ADR
   033's cascade and adapter selection stays a hand edit until that
   version lands.
-- **Write `port_bindings`.** The auto sqlserver binding already gives
+- **Write `port_bindings`.** The auto backend binding already gives
   mixed storage the right semantics (unopted entities fall back to
   memory); a custom lens is a hand-authored construct.
 - **Touch `default_environment` or existing environments.** Additive
   only; the memory dev loop survives wiring untouched.
-- **Re-wire.** A spec with `adapters.persistence.sqlserver` already
-  present gets a report and a stop, not a merge.
+- **Re-wire or switch backends.** A spec with a SQL backend already
+  declared gets a report and a stop, not a merge. Under ADR 092
+  exclusivity a backend switch is a hand edit that replaces the
+  declared key (and the per-entity opt-ins and env `port_binding`s
+  that name it).
 - **Adopt an existing database.** `--baseline-existing-target` and the
   adoption runbook live at `/archascode:db apply`'s layer; wire prints the
   pointer and moves on.
@@ -300,8 +318,7 @@ them (family rule).
 | Unknown target argument                               | Print the grammar (bare = report, `persistence`, `auth` reserved); stop.       |
 | `uv` / `archascode` CLI missing                       | Print the pointer; stop. Nothing written.                                      |
 | Baseline render red or cloud unreachable (Step 3)     | Print errors / the URL precondition; stop. Nothing written.                    |
-| Postgres selected, SQL Server declined                | Stop; nothing written.                                                         |
-| Already wired                                         | Print wiring report; stop.                                                     |
+| Already wired (either SQL backend declared)           | Print wiring report; stop. Backend switching is a hand edit (exclusivity).     |
 | Environment name collision                            | Stop before writing; user picks another name.                                  |
 | Malformed spec YAML                                   | Print the parse error; stop.                                                   |
 | Validation still red after 3 iterations (Step 6)      | Leave edits in place; print errors verbatim; `git checkout` is the undo.       |
@@ -314,11 +331,10 @@ whatever the error surfaced.
 - **`auth` target** — jwt_bearer selection, key-config env vars, and
   the claims-mapper hand-off (dispatched by `/archascode:apply`); plus
   per-binding `app_adapters.auth` overrides.
-- **Postgres** — flip the not-supported branch into a real backend
-  fork when the engine adapter lands; the interview already asks.
-- **Re-wire / edit mode** — change posture, add environments, or
-  extend entity coverage on an already-wired spec (today: report +
-  hand-edit).
+- **Re-wire / edit mode** — change posture, add environments, extend
+  entity coverage, or switch the SQL backend on an already-wired spec
+  (today: report + hand-edit; a switch replaces the declared key under
+  ADR 092 exclusivity).
 - **Adoption interview** — existing-DB targets: walk the
   cut → baseline flow instead of just naming it.
 - **Custom-port adapter wiring** — external-service backends (email,

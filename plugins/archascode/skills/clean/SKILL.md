@@ -62,8 +62,9 @@ Warnings to relay verbatim if present:
 
 - **sealed migrations** — the schema history under `spec/locked/.../migrations/`
   will be deleted and re-derived from zero on the next render.
-- **deployed environments** — the manifest records a sqlserver-backed env;
-  deleting the migration chain may desync a deployed target.
+- **deployed environments** — the manifest records a SQL-backed env
+  (sqlserver or postgres); deleting the migration chain may desync a
+  deployed target.
 
 ### Step 2 — confirm with the user
 

@@ -166,16 +166,22 @@
       "properties": {
         "persistence": {
           "type": "object",
-          "description": "Persistence backends, keyed by adapter id (ADR 085 D1). 'sqlserver' keeps its full config schema; other backends are accepted as opaque objects — the parse layer describes the language, the render layer enforces what this build supports.",
+          "description": "Persistence backends, keyed by adapter id (ADR 085 D1). 'sqlserver' and 'postgres' keep their full config schema (ADR 092 D8); other backends are accepted as opaque objects — the parse layer describes the language, the render layer enforces what this build supports. Backend exclusivity (ADR 092 D1): a project declares at most one of 'sqlserver'/'postgres'.",
           "properties": {
             "sqlserver": {
               "$ref": "#/definitions/SqlServerConfig"
+            },
+            "postgres": {
+              "$ref": "#/definitions/PostgresConfig"
             }
           },
           "patternProperties": {
             "^[a-z][a-z0-9_]*$": {
               "type": "object"
             }
+          },
+          "not": {
+            "required": ["sqlserver", "postgres"]
           }
         },
         "auth": {
@@ -194,7 +200,7 @@
     },
     "port_bindings": {
       "type": "object",
-      "description": "Optional named port bindings (ADR 010, renamed by ADR 026; formerly 'bindings'/'profiles'). Each port binding maps every entity's repo slot to one of its declared adapters at boot via APP_PORT_BINDING. Reserved names: 'memory', 'sqlserver' (auto-emitted).",
+      "description": "Optional named port bindings (ADR 010, renamed by ADR 026; formerly 'bindings'/'profiles'). Each port binding maps every entity's repo slot to one of its declared adapters at boot via APP_PORT_BINDING. Reserved names: 'memory', plus one auto-emitted name per declared, registered persistence backend (e.g. 'sqlserver', 'postgres' — ADR 092).",
       "additionalProperties": {
         "$ref": "#/definitions/PortBinding"
       }
@@ -1005,6 +1011,25 @@
         "env": {
           "type": "object",
           "description": "Map of config-key to env-var spec. Values are 'VAR_NAME' or 'VAR_NAME:default'. Required keys: host, database, username, password. Optional: port (defaults to DB_PORT:1433).",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "type": "string",
+              "pattern": "^[A-Z_][A-Z0-9_]*(:[^\\s].*)?$"
+            }
+          }
+        }
+      }
+    },
+    "PostgresConfig": {
+      "type": "object",
+      "description": "Postgres persistence adapter configuration (ADR 092). env required keys: host, database, username, password (port optional). Schema-management policy is derived from the environment-level data axis (see environments.<env>.data; ADR 017).",
+      "additionalProperties": false,
+      "required": ["env"],
+      "properties": {
+        "env": {
+          "type": "object",
+          "description": "Map of config-key to env-var spec. Values are 'VAR_NAME' or 'VAR_NAME:default'. Required keys: host, database, username, password. Optional: port (defaults to DB_PORT:5432).",
           "additionalProperties": false,
           "patternProperties": {
             "^[a-z][a-z0-9_]*$": {
