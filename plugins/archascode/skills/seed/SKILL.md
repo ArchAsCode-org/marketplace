@@ -6,14 +6,13 @@ description: Generate plausible example records for every entity in an archascod
 # /archascode:seed
 
 Auto-populate an archascode consuming project with example records by
-generating a snapshot the existing `/admin/snapshot/load` endpoint can
-ingest (ADR 012). The LLM reads the spec + the rendered `State`
+generating a snapshot that the app's boot-time autoload can
+ingest (ADR 012, ADR 094). The LLM reads the spec + the rendered `State`
 dataclasses and produces one JSON file per entity under `snapshots/`,
 respecting relationships, enums, value objects, and declared invariants.
 
 The skill writes JSON files on disk — it does **not** require the app
-to be running. If the app is up, the next `POST /admin/snapshot/load`
-(or a fresh `aac.py up` with autoload) picks them up.
+to be running. If the app is up, the next restart picks them up.
 
 The skill *does* import the rendered codec (`src.adapter.persistence._codec`)
 to compute the per-entity fingerprints that ADR 015 requires in the
@@ -325,15 +324,24 @@ Followed by a totals line and a hint:
 
 ```
 Wrote N records across M entities → snapshots/
-Next: POST /admin/snapshot/load (or restart the API from the API Explorer to autoload)
+Next: restart the app (or POST /admin/snapshot/save after refining)
+
+On a SQL binding (sqlserver or postgres), a bare app restart is not
+enough: it keeps the existing database rows in place but serves the
+binding's memory-bound entities (if any) empty — a hybrid tear. The
+snapshot loads on the next `aac up` instead, because `data: ephemeral`
+drop-and-recreates the schema before boot autoload runs — that
+drop-and-recreate is what empties the SQL tables so the fresh snapshot
+can load cleanly. `aac up` is the reset-to-baseline verb for a SQL
+binding.
 ```
 
 ## What this skill does NOT do
 
 - **Run `archascode render`.** If the project isn't rendered, stop
   and tell the user to render first. Same posture as `aac.py up`.
-- **Insert records via HTTP.** The skill writes files; loading is a
-  separate POST the user or `aac.py up` triggers. Decoupling keeps the
+- **Insert records via HTTP.** The skill writes files; loading happens
+  at boot (ADR 094), not through an HTTP call. Decoupling keeps the
   skill usable on a project whose app isn't currently up.
 - **Go through `<E>.create()` factories.** Direct State construction
   via the snapshot loader is by design — the same path the existing

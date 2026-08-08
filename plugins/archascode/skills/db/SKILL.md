@@ -31,7 +31,7 @@ Invocation forms:
 /archascode:db                # read-only plan for the default env
 /archascode:db plan            # read-only plan, prompt for env
 /archascode:db plan prod       # read-only plan for prod
-/archascode:db apply           # apply, prompt with the manifest's defaultEnvironment
+/archascode:db apply           # apply, prompt with environments.json's defaultEnvironment
 /archascode:db apply prod      # apply straight to prod
 ```
 
@@ -75,7 +75,7 @@ and a remainder.
 If an env name was supplied (non-empty after trimming), use it verbatim;
 skip to the path's next step.
 
-Otherwise, read `.archascode/manifest.json` and look at
+Otherwise, read `.archascode/environments.json` and look at
 `defaultEnvironment` and the keys of `environments`.
 
 Three sub-cases:
@@ -95,7 +95,7 @@ Three sub-cases:
    `AskUserQuestion`. Use the chosen key as the env name.
 
 3. **No `environments` block at all** → print
-   `no environments declared in manifest; nothing to <verb>`
+   `no environments declared in environments.json; nothing to <verb>`
    (substitute `plan`/`deploy to` for `<verb>` as appropriate to the
    path) and stop.
 
@@ -152,9 +152,9 @@ do not capture or reformat. Exit codes:
 - `1` — precondition failed (uncommitted cut files) **or** the
   underlying `aac.py migrate` failed. The CLI has already printed the
   specific reason; do not editorialise.
-- `2` — env not found in manifest. Surface the CLI's message verbatim.
-  Re-prompting from a stale name is not the skill's job; the user
-  re-invokes with a correct name.
+- `2` — env not found in `environments.json`. Surface the CLI's message
+  verbatim. Re-prompting from a stale name is not the skill's job; the
+  user re-invokes with a correct name.
 
 Do not retry. Do not fix uncommitted files yourself. Do not run
 `/archascode:cut-schema-migration` as remediation — the user re-invokes

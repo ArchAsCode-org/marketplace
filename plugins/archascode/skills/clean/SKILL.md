@@ -21,6 +21,7 @@ gets its own verb so the destructiveness is legible at the call site.
 - `spec/src/` — the **agent overlay**: regenerable body-seed stubs (re-emitted
   on the next render). This is the part worth a second look before confirming.
 - `.archascode/manifest.json` — render bookkeeping.
+- `.archascode/environments.json` — the environment table (D5).
 - `aac.py` — root overwrite file.
 - `docker-compose.yml` — root once-seed (user-owned after first render).
 
@@ -62,9 +63,9 @@ Warnings to relay verbatim if present:
 
 - **sealed migrations** — the schema history under `spec/locked/.../migrations/`
   will be deleted and re-derived from zero on the next render.
-- **deployed environments** — the manifest records a SQL-backed env
-  (sqlserver or postgres); deleting the migration chain may desync a
-  deployed target.
+- **deployed environments** — one or more environments are recorded as
+  SQL-backed (sqlserver or postgres); deleting the migration chain may
+  desync a deployed target.
 
 ### Step 2 — confirm with the user
 

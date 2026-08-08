@@ -252,24 +252,25 @@ it.
 Trigger conditions (all three must hold):
 
 1. The active environment's auth adapter is `jwt_bearer`. The active
-   environment is `manifest.defaultEnvironment` (camelCase) unless the
-   user passed `--env`; its adapter is
-   `manifest.environments[<env>].appAdapters.auth.id`.
+   environment is `.archascode/environments.json`'s `defaultEnvironment`
+   (camelCase) unless the user passed `--env`; its adapter is
+   `environments[<env>].appAdapters.auth.id`.
 2. `spec/src/adapter/auth/jwt_bearer/claims_mapper.py` exists on disk
    (the seed was written on a previous render).
 3. The file still contains the seed marker comment
    `# archascode: seeded by jwt_bearer adapter renderer`.
 
-Evaluate all three with one command — do not hand-write ad-hoc manifest
-readers (the manifest is **camelCase** throughout: `defaultEnvironment`,
-`appAdapters`, not snake_case). Substitute `ENV` only if the user passed
-`--env`; otherwise leave it empty to use `defaultEnvironment`:
+Evaluate all three with one command — do not hand-write ad-hoc
+`environments.json` readers (`environments.json` is **camelCase**
+throughout: `defaultEnvironment`, `appAdapters`, not snake_case).
+Substitute `ENV` only if the user passed `--env`; otherwise leave it
+empty to use `defaultEnvironment`:
 
 ```bash
 python3 - "$PWD" "${ENV:-}" <<'PY'
 import json, os, sys
 root, env_override = sys.argv[1], sys.argv[2]
-m = json.load(open(os.path.join(root, ".archascode", "manifest.json")))
+m = json.load(open(os.path.join(root, ".archascode", "environments.json")))
 env = env_override or m.get("defaultEnvironment")
 auth = (((m.get("environments") or {}).get(env) or {})
         .get("appAdapters") or {}).get("auth") or {}

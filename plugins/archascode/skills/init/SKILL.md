@@ -273,7 +273,7 @@ pyproject.local.toml.
 The skill does NOT modify or delete `pyproject.local.toml` — the hand-
 merge is the user's call. Printed once per `/archascode:init` invocation.
 
-### Step 5 — ensure `.gitignore` covers `.venv/`, `snapshots/`, `__pycache__/`, and `.env` files
+### Step 5 — ensure `.gitignore` covers `.venv/`, `__pycache__/`, and `.env` files, keeps `snapshots/` tracked, and (when `ui:` is declared) keeps the UI dist tracked
 
 If `.gitignore` exists, check whether it already ignores `.venv/`
 (accept any reasonable anchored form — `.venv`, `.venv/`, `/.venv`,
@@ -282,14 +282,6 @@ If `.gitignore` exists, check whether it already ignores `.venv/`
 ```
 # Local virtualenv managed by /archascode:init.
 .venv/
-```
-
-Then independently check whether it already ignores `snapshots/` (accept
-`snapshots`, `snapshots/`, `/snapshots`, `/snapshots/`). If not, append:
-
-```
-# Runtime data snapshots written by /admin/snapshot endpoints (ADR 012).
-snapshots/
 ```
 
 Then independently check whether it already ignores `__pycache__/`
@@ -324,7 +316,62 @@ would be ignored), append the `!.env.*.example` negation line on its
 own. Order matters: the `!` negation must come **after** the `.env.*`
 ignore for git to honor it — append it at the end of the block / file.
 
-If `.gitignore` does not exist, create it with all four blocks.
+Then independently check whether the existing `.gitignore` ignores
+`snapshots/` (accept any form — `snapshots`, `snapshots/`, `/snapshots`,
+`/snapshots/`). Projects scaffolded before ADR 094 carry such a rule,
+typically with a comment citing ADR 012's `/admin/snapshot` endpoints.
+Delete the rule and its accompanying comment: `snapshots/` must be
+committed, because the generated app autoloads it at boot (ADR 094) and
+a build-from-repo PaaS deploy can only autoload what git carries. Tell
+the user snapshots are now tracked and, if a `snapshots/` directory
+already exists, remind them to `git add snapshots/` so the seed data
+ships with the next push.
+
+Then, **when `spec/architecture.yml` declares a top-level `ui:` block**
+(ADR 096), guard the UI build artifact the same way: resolve the dist
+path from `ui.dist` (or the default `ui/dist` if `ui: {}` or `dist` is
+omitted), then check whether that path is ignored by **any** applicable
+`.gitignore` — the root `.gitignore` **and** every `.gitignore` on the
+path between the project root and the dist directory (e.g.
+`ui/.gitignore` — frontend scaffolds commonly ship a `dist` ignore line
+there). This is the same failure shape as the pre-ADR-094
+`snapshots/`-ignored bug, caught here at authoring time instead of
+discovered later as a silently UI-less deploy: an ignored dist means
+`git push` ships a repo whose committed backend has no frontend inside
+it, while `npm run build` and the local Vite dev server keep working
+right up until the deploy, giving no local signal anything is wrong.
+
+For each `.gitignore` on that path (root, plus any nested one above the
+dist directory), look for a rule that matches the dist directory or any
+ancestor of it (accept the same "reasonable anchored form" latitude as
+the other sub-checks — bare name, trailing slash, leading slash,
+`**/`-prefixed). If found and unambiguous (a rule that ignores exactly
+the dist directory, or a directory it is nested under, e.g. a bare
+`dist` or `dist/` line in `ui/.gitignore` when `ui.dist` is `ui/dist`),
+delete the rule and its accompanying comment, the same as the
+`snapshots/` sub-check. If the match is ambiguous — a broad pattern
+whose intent isn't clearly "ignore the UI build output" (e.g. a glob
+that also plausibly covers something else) — do not delete it; instead
+flag it to the user by name (file + line) and explain why it needs
+attention. Either way, tell the user what changed or what to check, and
+why: **an ignored dist silently strips the UI from every
+build-from-repo deploy while the local dev server keeps working.**
+
+Once the dist is confirmed tracked (or flagged), remind the user of the
+deploy ritual (ADR 096): `npm run build` (or the project's equivalent)
+→ commit the changed dist → `git push`. Also remind them that because
+the UI and the API now share one origin in the deployed app, client
+route names must not collide with generated endpoint paths —
+`/openapi.json` is the reserved list to check against (the API's own
+routes, `/docs`, and `/openapi.json` always win over the UI mount by
+registration precedence; a route the UI names identically to a
+generated endpoint will get JSON instead of the app on a refresh).
+
+If `.gitignore` does not exist, create it with all three blocks (plus
+the `ui:`-gated dist check above, which is a no-op with nothing to
+create when there is no existing `ui/.gitignore` to inspect and the
+freshly created root `.gitignore` carries no dist-ignoring rule to
+begin with).
 
 ### Step 6 — create or sync the venv
 

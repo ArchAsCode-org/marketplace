@@ -154,8 +154,14 @@
           "enum": ["url", "header", "none"]
         },
         "base_path": {
-          "type": "string",
-          "description": "Base path for all API endpoints (e.g., '/api/v1')"
+          "description": "Base path prefixed to every generated API route (e.g. '/api/v1'). Either the empty string (no prefix) or a leading-'/' path of one or more non-empty segments, none of which is '.' or '..' (interior included) and none of which carries a quote, backslash, brace, or control character (ADR 098 D1). Checked textually, pre-normalization, and stored verbatim.",
+          "anyOf": [
+            { "const": "" },
+            {
+              "type": "string",
+              "pattern": "\\A(/(?!\\.{1,2}(?:/|$))[^/\"'\\\\{}\\x00-\\x1f]+)+\\Z"
+            }
+          ]
         }
       }
     },
@@ -215,6 +221,19 @@
     "default_environment": {
       "type": "string",
       "description": "Name of the environment used by aac up when no --env flag is passed. Required when 'environments:' is non-empty."
+    },
+    "ui": {
+      "type": "object",
+      "description": "Optional spec-declared UI serving (ADR 096). Presence enables mounting a built single-page-app dist at '/' in the rendered app, after every API route registration. Absence is the identity case — no mount is emitted.",
+      "additionalProperties": false,
+      "properties": {
+        "dist": {
+          "type": "string",
+          "default": "ui/dist",
+          "pattern": "^(?!\\.{1,2}(?:/|$))[^/]+(?:/(?!\\.{1,2}(?:/|$))[^/]+)*$",
+          "description": "Project-root-relative path to the built UI's dist directory (e.g. 'ui/dist'). One or more '/'-separated non-empty segments; no leading '/', no '.' or '..' segment (including interior), no '//' runs, no trailing slash. Checked textually, pre-normalization, and stored verbatim."
+        }
+      }
     }
   },
   "additionalProperties": false,
@@ -1023,17 +1042,19 @@
     },
     "PostgresConfig": {
       "type": "object",
-      "description": "Postgres persistence adapter configuration (ADR 092). env required keys: host, database, username, password (port optional). Schema-management policy is derived from the environment-level data axis (see environments.<env>.data; ADR 017).",
+      "description": "Postgres persistence adapter configuration (ADR 097 D1). env carries exactly one key: url — a single DATABASE_URL-shaped connection string, the convention every mainstream Postgres platform injects and psycopg consumes natively. This replaces ADR 092's four discrete keys (host, database, username, password) with no deprecation window. Schema-management policy is derived from the environment-level data axis (see environments.<env>.data; ADR 017).",
       "additionalProperties": false,
       "required": ["env"],
       "properties": {
         "env": {
           "type": "object",
-          "description": "Map of config-key to env-var spec. Values are 'VAR_NAME' or 'VAR_NAME:default'. Required keys: host, database, username, password. Optional: port (defaults to DB_PORT:5432).",
+          "description": "The Postgres connection binding. Exactly one key, url, whose value is 'VAR_NAME' or 'VAR_NAME:default' (e.g. 'DATABASE_URL').",
           "additionalProperties": false,
-          "patternProperties": {
-            "^[a-z][a-z0-9_]*$": {
+          "required": ["url"],
+          "properties": {
+            "url": {
               "type": "string",
+              "description": "Env var holding the postgresql://user:password@host:port/dbname connection string.",
               "pattern": "^[A-Z_][A-Z0-9_]*(:[^\\s].*)?$"
             }
           }

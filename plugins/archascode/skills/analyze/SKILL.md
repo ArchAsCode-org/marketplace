@@ -251,6 +251,12 @@ metadata:
   description: First-pass spec drafted from docs/prd.md by /archascode:analyze
 api:
   auth: { type: jwt, scheme: bearer }
+  # Optional: re-root every generated route under a common prefix. Use it when
+  # the app also serves a same-origin UI (ADR 096) and you want a collision-free
+  # API namespace. Grammar: the empty string (no prefix, the default) or a
+  # leading-'/' path of one or more non-empty segments — no trailing slash, no
+  # '.'/'..' segment, no '//' runs, no quotes/backslashes/braces. e.g. "/api/v1".
+  base_path: "/api/v1"
 domain:
   enums:
     JobStatus: { values: [scheduled, in_progress, completed, cancelled] }

@@ -70,7 +70,7 @@ async function readLockedChain(outDir, backend) {
 }
 
 // ../../../packages/core/src/version.ts
-var ARCHASCODE_VERSION = "0.6.0";
+var ARCHASCODE_VERSION = "0.6.1";
 
 // ../../../packages/core/src/client.ts
 var CloudRequestError = class extends Error {
@@ -359,6 +359,31 @@ async function writeManifest(outDir, manifest) {
 function isNotFound3(err) {
   return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
 }
+var ENVIRONMENTS_REL_PATH = path5.join(".archascode", "environments.json");
+var CURRENT_ENVIRONMENTS_SCHEMA_VERSION = 1;
+async function readEnvironments(outDir) {
+  const p = path5.join(outDir, ENVIRONMENTS_REL_PATH);
+  let raw;
+  try {
+    raw = await readFile4(p, "utf8");
+  } catch (err) {
+    if (isNotFound3(err)) return null;
+    throw err;
+  }
+  const parsed = JSON.parse(raw);
+  const v = parsed.schemaVersion;
+  if (typeof v !== "number" || v !== CURRENT_ENVIRONMENTS_SCHEMA_VERSION) {
+    throw new Error(
+      `unexpected environments.json schemaVersion=${String(v)} at ${p} \u2014 run \`archascode render\` to regenerate it`
+    );
+  }
+  return parsed;
+}
+async function writeEnvironments(outDir, file) {
+  const p = path5.join(outDir, ENVIRONMENTS_REL_PATH);
+  await mkdir4(path5.dirname(p), { recursive: true });
+  await writeFile3(p, JSON.stringify(file, null, 2) + "\n", "utf8");
+}
 
 // ../../../packages/core/src/overlayMove.ts
 import { mkdir as mkdir5, readdir as readdir2, rename, rm as rm2, stat as stat2 } from "node:fs/promises";
@@ -524,11 +549,14 @@ async function render(opts) {
       client: ARCHASCODE_VERSION,
       ...response.server_version ? { server: response.server_version } : {}
     },
-    ...nextTombstone.length > 0 ? { seededOnceEver: nextTombstone } : {},
-    ...environments ? { environments } : {},
-    ...defaultEnvironment ? { defaultEnvironment } : {}
+    ...nextTombstone.length > 0 ? { seededOnceEver: nextTombstone } : {}
   };
   await writeManifest(opts.outDir, manifest);
+  await writeEnvironments(opts.outDir, {
+    schemaVersion: 1,
+    environments: environments ?? {},
+    ...defaultEnvironment ? { defaultEnvironment } : {}
+  });
   return {
     ok: true,
     filesWritten: writtenPaths,
@@ -760,8 +788,11 @@ var CLEAN_TARGETS = [
   "src",
   path9.join("spec", "src"),
   path9.join(".archascode", "manifest.json"),
+  ENVIRONMENTS_REL_PATH,
   "aac.py",
-  "docker-compose.yml"
+  "docker-compose.yml",
+  "Dockerfile",
+  ".dockerignore"
 ];
 var specMigrationsRelDir2 = (backend) => path9.join("spec", "locked", "adapter", "persistence", backend, "schema", "migrations");
 var INFLIGHT_FILENAME = "_inflight.sql";
@@ -790,15 +821,18 @@ async function planClean(opts) {
     const deployedEnvs = await listDeployedEnvironments(opts.outDir);
     if (deployedEnvs.length > 0) {
       warnings.push(
-        `the manifest records environment(s) ${deployedEnvs.join(", ")}; deleting the migration chain may desync a deployed target.`
+        `${deployedEnvs.join(", ")} environment(s) are recorded as SQL-backed; deleting the migration chain may desync a deployed target.`
       );
     }
   } else {
     const defaultTopTargets = [
       "src",
       path9.join(".archascode", "manifest.json"),
+      ENVIRONMENTS_REL_PATH,
       "aac.py",
-      "docker-compose.yml"
+      "docker-compose.yml",
+      "Dockerfile",
+      ".dockerignore"
     ];
     for (const rel of defaultTopTargets) {
       if (await pathExists3(path9.join(opts.outDir, rel))) {
@@ -853,9 +887,9 @@ async function listSealedCuts(outDir) {
   return out;
 }
 async function listDeployedEnvironments(outDir) {
-  const manifest = await readManifest(outDir);
-  if (!manifest?.environments) return [];
-  return Object.entries(manifest.environments).filter(([, env]) => env.persistenceBackends.length > 0).map(([name]) => name).sort();
+  const envs = await readEnvironments(outDir);
+  if (!envs) return [];
+  return Object.entries(envs.environments).filter(([, env]) => env.persistenceBackends.length > 0).map(([name]) => name).sort();
 }
 async function pathExists3(p) {
   try {
@@ -1469,11 +1503,11 @@ var specMigrationsRelDir3 = (backend) => path12.join("spec", "locked", "adapter"
 var CUT_FILENAME_RE = /^\d{14}_[a-z0-9_]+\.sql$/;
 async function runDeploy(input, io) {
   const { outDir, envName, baselineExisting, mode, planOut, upTo } = input;
-  const readManifestFn = io.readManifest ?? readManifest;
-  const manifest = await readManifestFn(outDir);
-  const env = manifest?.environments?.[envName] ?? null;
+  const readEnvironmentsFn = io.readEnvironments ?? readEnvironments;
+  const envFile = await readEnvironmentsFn(outDir);
+  const env = envFile?.environments?.[envName] ?? null;
   if (env === null) {
-    io.stderr(`deploy: env ${envName} not found in manifest
+    io.stderr(`deploy: env ${envName} not found in environments.json
 `);
     return 2;
   }
@@ -1695,7 +1729,8 @@ validate \u2014 checks spec/architecture.yml against the full engine surface
            workspace/manifest state that validate cannot see.
 
 clean (default): resets the regenerable surface (src/, aac.py,
-docker-compose.yml, .archascode/manifest.json, and spec/src/ wholesale).
+docker-compose.yml, Dockerfile, .dockerignore, .archascode/manifest.json,
+and spec/src/ wholesale).
 Preserves spec/locked/ (hand-authored bodies + sealed migrations + the
 interfaces.lock ledger). Safe to run without losing irreplaceable work;
 git can recover the deleted regenerable content.
