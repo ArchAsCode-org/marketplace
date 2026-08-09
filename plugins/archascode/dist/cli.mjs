@@ -70,7 +70,7 @@ async function readLockedChain(outDir, backend) {
 }
 
 // ../../../packages/core/src/version.ts
-var ARCHASCODE_VERSION = "0.6.1";
+var ARCHASCODE_VERSION = "0.7.0";
 
 // ../../../packages/core/src/client.ts
 var CloudRequestError = class extends Error {

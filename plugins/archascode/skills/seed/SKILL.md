@@ -1,15 +1,16 @@
 ---
 name: seed
-description: Generate plausible example records for every entity in an archascode-rendered project and write them as a loadable snapshot. Use after `archascode render` when the user wants the running app pre-populated with realistic data instead of an empty database.
+description: Generate plausible example records for every entity in an archascode-rendered project and write them as loadable seed data. Use after `archascode render` when the user wants the running app pre-populated with realistic data instead of an empty database.
 ---
 
 # /archascode:seed
 
 Auto-populate an archascode consuming project with example records by
-generating a snapshot that the app's boot-time autoload can
-ingest (ADR 012, ADR 094). The LLM reads the spec + the rendered `State`
-dataclasses and produces one JSON file per entity under `snapshots/`,
-respecting relationships, enums, value objects, and declared invariants.
+generating seed data that the app's boot-time autoload can
+ingest (ADR 012, ADR 094, renamed to `seeds/` by ADR 105). The LLM reads
+the spec + the rendered `State` dataclasses and produces one JSON file
+per entity under `seeds/`, respecting relationships, enums, value
+objects, and declared invariants.
 
 The skill writes JSON files on disk — it does **not** require the app
 to be running. If the app is up, the next restart picks them up.
@@ -50,7 +51,7 @@ Invocation forms:
   `archascode render` / `/archascode:apply`. Do not try to render here.
 - `spec/architecture.yml` is present and parses.
 - `src/adapter/persistence/_codec.py` is present — its existence is
-  the contract that snapshots are loadable for this render. The
+  the contract that seed data is loadable for this render. The
   module must export `compute_entity_fingerprint` (ADR 015); if
   importing it fails, the project was rendered by an older engine
   and the user must re-render before seeding.
@@ -66,7 +67,7 @@ the missing file. Do not try to remediate.
 ## What it produces
 
 ```
-snapshots/
+seeds/
 ├── manifest.json          # schemaTimestamp, entityFingerprints, portBinding,
 │                          # createdAt, loadOrder
 └── <entity_snake>.json    # JSON array of State records, one file per entity
@@ -80,7 +81,14 @@ computes the values by importing the rendered codec rather than
 re-implementing the hash. A manifest without the field will be
 rejected at load time.
 
-If `snapshots/` already exists, **stop and ask** before overwriting —
+If `seeds/` does not yet exist but a legacy `snapshots/manifest.json`
+is present on disk (a pre-ADR-105 project), offer to migrate before
+generating anything: **migrate** (`git mv snapshots seeds`, or plain
+`mv snapshots seeds` if `snapshots/` is untracked) to keep the existing
+seed data under its new name, or **regenerate fresh** into `seeds/`
+(leaving `snapshots/` on disk untouched). Do not pick silently — ask.
+
+If `seeds/` already exists, **stop and ask** before overwriting —
 the user may have hand-curated data there. Offer: overwrite, merge
 (skip entities that already have a file), or cancel. Do not silently
 clobber.
@@ -92,7 +100,7 @@ clobber.
 ```bash
 test -f spec/architecture.yml || { echo "spec/architecture.yml not found"; exit 1; }
 test -d src/domain/entities    || { echo "src/domain/entities not found — run /archascode:apply first"; exit 1; }
-test -f src/adapter/persistence/_codec.py || { echo "snapshot codec not rendered — re-run /archascode:apply"; exit 1; }
+test -f src/adapter/persistence/_codec.py || { echo "seed codec not rendered — re-run /archascode:apply"; exit 1; }
 test -f .archascode/manifest.json || { echo ".archascode/manifest.json missing — re-run /archascode:apply"; exit 1; }
 test -d .venv                  || { echo ".venv missing — run /archascode:init"; exit 1; }
 uv run python -c "from src.adapter.persistence._codec import compute_entity_fingerprint" \
@@ -125,17 +133,17 @@ relationships, none of which appear verbatim in the spec.
 
 For each entity, parse `src/domain/entities/<snake>.py` and locate
 `@dataclass(frozen=True) class <E>State`. Capture the field list and
-each field's annotation string — this is the JSON key set the snapshot
+each field's annotation string — this is the JSON key set the seed data
 must use, and the annotation drives codec decoding on load.
 
 Don't try to be clever: a simple AST walk over the file or a regex
 over the `class <E>State:` block is fine. If parsing fails for any
 entity, stop with a message naming the file — better to fail loud than
-emit a bad snapshot the loader will choke on.
+emit bad seed data the loader will choke on.
 
 ### Step 3 — compute load order
 
-Snapshots must load parents before children (FK constraints). Build a
+Seeds must load parents before children (FK constraints). Build a
 DAG from `relationships`:
 
 - A `many-to-one` from `Order` → `Customer` means `Customer` is a
@@ -220,9 +228,9 @@ continue. Don't retry — if more than half the records for an entity
 fail validation, stop the skill and surface the prompt + the
 offending output for the user to inspect.
 
-### Step 5 — write the snapshot files
+### Step 5 — write the seed files
 
-For each entity, write `snapshots/<snake>.json` as a JSON array,
+For each entity, write `seeds/<snake>.json` as a JSON array,
 using the same encoding the codec uses on dump:
 
 - UUID → string
@@ -232,7 +240,7 @@ using the same encoding the codec uses on dump:
   the closed set)
 - composite VO → dict with the inner fields
 
-Then write `snapshots/manifest.json` with:
+Then write `seeds/manifest.json` with:
 
 ```json
 {
@@ -248,7 +256,7 @@ Then write `snapshots/manifest.json` with:
 ```
 
 `schemaTimestamp` matters for a SQL binding (sqlserver or postgres) —
-the codec's `verify_schema` will refuse to load a snapshot whose
+the codec's `verify_schema` will refuse to load seed data whose
 identifier doesn't match the current schema. Despite the name it is no
 longer a manifest timestamp (that manifest section was removed by ADR
 087): it is `sha256[:16]` of the project's sorted cut-migration
@@ -304,7 +312,7 @@ manifest = {
     "createdAt": datetime.now().isoformat(),
     "loadOrder": load_order,
 }
-Path("snapshots/manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+Path("seeds/manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 ```
 
 If `compute_entity_fingerprint` is missing from the codec, the project
@@ -317,21 +325,21 @@ fingerprints; the load endpoint will reject it.
 Print, one line per entity:
 
 ```
-✓ <Entity>: <n> records → snapshots/<snake>.json
+✓ <Entity>: <n> records → seeds/<snake>.json
 ```
 
 Followed by a totals line and a hint:
 
 ```
-Wrote N records across M entities → snapshots/
-Next: restart the app (or POST /admin/snapshot/save after refining)
+Wrote N records across M entities → seeds/
+Next: restart the app (or POST /admin/seed/save after refining)
 
 On a SQL binding (sqlserver or postgres), a bare app restart is not
 enough: it keeps the existing database rows in place but serves the
 binding's memory-bound entities (if any) empty — a hybrid tear. The
-snapshot loads on the next `aac up` instead, because `data: ephemeral`
+seed data loads on the next `aac up` instead, because `data: ephemeral`
 drop-and-recreates the schema before boot autoload runs — that
-drop-and-recreate is what empties the SQL tables so the fresh snapshot
+drop-and-recreate is what empties the SQL tables so the fresh seed data
 can load cleanly. `aac up` is the reset-to-baseline verb for a SQL
 binding.
 ```
@@ -344,12 +352,12 @@ binding.
   at boot (ADR 094), not through an HTTP call. Decoupling keeps the
   skill usable on a project whose app isn't currently up.
 - **Go through `<E>.create()` factories.** Direct State construction
-  via the snapshot loader is by design — the same path the existing
+  via the seed loader is by design — the same path the existing
   `dump_all` / `load_all` flow uses. Invariant enforcement happens in
   the prompt, not at runtime. If the user wants factory-enforced
   invariants, the right answer is a follow-on skill that drives
   `POST /<entities>` over HTTP; that's out of scope for v1.
-- **Overwrite an existing `snapshots/` directory silently.** Always
+- **Overwrite an existing `seeds/` directory silently.** Always
   prompt.
 - **Use the `faker` library.** The `faker:` field on attributes is a
   *hint* to the LLM, not a directive to run Faker. Reasonable for v1;
@@ -371,7 +379,7 @@ binding.
 | Relationship cycle detected                            | Print the cycle; stop. Deferred FK seeding not supported in v1.                         |
 | LLM produces invalid JSON                              | Drop the entity's batch; continue with others; report at the end.                       |
 | >50% of an entity's records fail validation            | Stop; print the prompt and the offending output for the user to inspect.                |
-| `snapshots/` already exists                            | Prompt: overwrite / merge / cancel. Default to cancel on non-interactive contexts.      |
+| `seeds/` already exists                                 | Prompt: overwrite / merge / cancel. Default to cancel on non-interactive contexts.      |
 | `_compute_schema_identifier` returns `""` (no cuts yet) | Write `""`; loader will skip verification (matches memory-binding behavior).            |
 | `compute_entity_fingerprint` missing from rendered codec | Stop. Project predates ADR 015 — user must re-render with the current engine.           |
 | `<E>State` not importable from `src.domain.entities.*`  | Stop. Likely an `/archascode:apply` step was skipped; tell the user to re-render.              |
@@ -381,7 +389,7 @@ No retries. The user re-invokes after adjusting the spec or theme.
 ## Notes for future versions
 
 - **Hand off through HTTP factories.** A `--via-http` flag could drive
-  `POST /<entities>` instead of writing snapshot files, picking up
+  `POST /<entities>` instead of writing seed files, picking up
   invariant enforcement through `<E>.create()`. Useful once entities
   reliably expose create endpoints.
 - **Real Faker integration.** When an attribute's `faker:` value maps
@@ -390,6 +398,6 @@ No retries. The user re-invokes after adjusting the spec or theme.
 - **Volume scaling.** A `--scale realistic` mode that picks per-entity
   counts based on cardinality (e.g. 100 line items per 10 orders per
   3 customers) instead of a uniform `--count`.
-- **Multiple themes / named snapshots.** Today snapshots are
-  unnamed (ADR 012 v1). When the snapshot system grows named
-  snapshots, this skill should grow a `--name <slug>` arg.
+- **Multiple themes / named seeds.** Today seeds are
+  unnamed (ADR 012 v1). When the seed system grows named
+  seeds, this skill should grow a `--name <slug>` arg.

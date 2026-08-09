@@ -273,7 +273,7 @@ pyproject.local.toml.
 The skill does NOT modify or delete `pyproject.local.toml` — the hand-
 merge is the user's call. Printed once per `/archascode:init` invocation.
 
-### Step 5 — ensure `.gitignore` covers `.venv/`, `__pycache__/`, and `.env` files, keeps `snapshots/` tracked, and (when `ui:` is declared) keeps the UI dist tracked
+### Step 5 — ensure `.gitignore` covers `.venv/`, `__pycache__/`, and `.env` files, keeps `seeds/` tracked, and (when `ui:` is declared) keeps the UI dist tracked
 
 If `.gitignore` exists, check whether it already ignores `.venv/`
 (accept any reasonable anchored form — `.venv`, `.venv/`, `/.venv`,
@@ -317,15 +317,23 @@ own. Order matters: the `!` negation must come **after** the `.env.*`
 ignore for git to honor it — append it at the end of the block / file.
 
 Then independently check whether the existing `.gitignore` ignores
-`snapshots/` (accept any form — `snapshots`, `snapshots/`, `/snapshots`,
-`/snapshots/`). Projects scaffolded before ADR 094 carry such a rule,
-typically with a comment citing ADR 012's `/admin/snapshot` endpoints.
-Delete the rule and its accompanying comment: `snapshots/` must be
-committed, because the generated app autoloads it at boot (ADR 094) and
-a build-from-repo PaaS deploy can only autoload what git carries. Tell
-the user snapshots are now tracked and, if a `snapshots/` directory
-already exists, remind them to `git add snapshots/` so the seed data
-ships with the next push.
+`seeds/` (accept any form — `seeds`, `seeds/`, `/seeds`, `/seeds/`) **or**
+the legacy `snapshots/` spelling (accept any form — `snapshots`,
+`snapshots/`, `/snapshots`, `/snapshots/`). Projects scaffolded before
+ADR 094 (or before ADR 105's rename) carry such a rule, typically with a
+comment citing ADR 012's `/admin/snapshot` endpoints. Delete the rule and
+its accompanying comment (whichever spelling matched): `seeds/` must be
+committed, because the generated app autoloads it at boot (ADR 094,
+renamed by ADR 105) and a build-from-repo PaaS deploy can only autoload
+what git carries. Tell the user seed data is now tracked and, if a
+`seeds/` directory already exists, remind them to `git add seeds/` so the
+seed data ships with the next push.
+
+Then, when `snapshots/manifest.json` exists on disk and `seeds/` does
+not, this is a legacy pre-ADR-105 project: run `git mv snapshots seeds`
+(plain `mv snapshots seeds` if `snapshots/` is untracked), and tell the
+user the seed-data directory was renamed (ADR 105) and the migration is
+done.
 
 Then, **when `spec/architecture.yml` declares a top-level `ui:` block**
 (ADR 096), guard the UI build artifact the same way: resolve the dist
@@ -335,7 +343,7 @@ omitted), then check whether that path is ignored by **any** applicable
 path between the project root and the dist directory (e.g.
 `ui/.gitignore` — frontend scaffolds commonly ship a `dist` ignore line
 there). This is the same failure shape as the pre-ADR-094
-`snapshots/`-ignored bug, caught here at authoring time instead of
+`seeds/`-ignored bug, caught here at authoring time instead of
 discovered later as a silently UI-less deploy: an ignored dist means
 `git push` ships a repo whose committed backend has no frontend inside
 it, while `npm run build` and the local Vite dev server keep working
@@ -349,7 +357,7 @@ the other sub-checks — bare name, trailing slash, leading slash,
 the dist directory, or a directory it is nested under, e.g. a bare
 `dist` or `dist/` line in `ui/.gitignore` when `ui.dist` is `ui/dist`),
 delete the rule and its accompanying comment, the same as the
-`snapshots/` sub-check. If the match is ambiguous — a broad pattern
+`seeds/` sub-check. If the match is ambiguous — a broad pattern
 whose intent isn't clearly "ignore the UI build output" (e.g. a glob
 that also plausibly covers something else) — do not delete it; instead
 flag it to the user by name (file + line) and explain why it needs
