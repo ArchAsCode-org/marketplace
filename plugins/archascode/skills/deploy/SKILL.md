@@ -156,7 +156,11 @@ interpretation pins:
   to fall outside the grant and may prompt or be classifier-judged; that
   is accepted — hygiene outranks the no-prompt goal, and the write
   targets a workspace file. On a denial there, hand the user the exact
-  one-liner to run via the `!` prefix.
+  one-liner to run via the `!` prefix. **The `AUTH_API_KEY`
+  generation/seed compound command** (Deployed auth posture, above) is a
+  named member of this same accepted class — same gitignored target,
+  same expected-outside-the-grant runtime behavior, same fallback
+  one-liner on denial.
 
 ### On any permission denial
 
@@ -272,19 +276,25 @@ for interview *defaults*, not decisions):
   - **Present with `environments: {}`** → its own outcome, not an error:
     `no environments declared — nothing to deploy`, stop.
   - Otherwise: the environment table — name, `portBinding`, `compute?`,
-    `data`, `persistenceBackends` — is the desired-state input.
+    `data`, `persistenceBackends`, `appAdapters.auth.id` (absent →
+    `noop`, the `/archascode:apply` reader fallback — Deployed auth
+    posture, below) — is the desired-state input.
 - **One `spec/architecture.yml` read**: the declared env-key names under
   `adapters.persistence.<backend>.env` (for postgres, the single `url` key
   — ADR 097). This supplies the variable *name* to wire, never a value.
 
-**Plus one advisory-only spec read** — the declared auth posture (app-wide
-`api.auth.type` default per ADR 033's cascade, and explicit
-`entity.api.auth: anonymous` overrides) — that feeds the
-protected-anonymous advisory line (Step 3) and **never** enters desired
-state: never a decision input, never a gate on an apply. The read is
-declaration-level, not route-level — no per-route derivation (suppressed
-ops, relationship routes); a false "all quiet" on exotic combinations is
-accepted and the line's absence is not a security claim.
+**Plus one advisory-only spec read** — the declared auth posture (the
+app-wide `api.auth.type` default per ADR 033's cascade and explicit
+`entity.api.auth` overrides, plus entity enumeration for list routes,
+the ADR-059 `entity.api.disabled` skip, and `api.base_path`). This read
+feeds **two** consumers: the protected-anonymous advisory line (Step 3)
+and Step 7's auth-probe route selection (Deployed auth posture, below)
+— **never** desired state, never a reconcile/apply decision input,
+never a gate on an apply (a failed smoke ⚠s the report; it gates
+nothing). The read stays declaration-level, not route-level — no
+per-route derivation of relationship (ADR 035) or promoted-method
+routes; a false "all quiet" on exotic combinations is accepted and
+neither consumer's absence is a security claim.
 
 ### The interview: which NEW environments to create is asked, every run
 
@@ -472,6 +482,179 @@ removal stays update-lane — the Permission posture's existing "variable
 removal is granted" pin already covers the `variable delete` spelling
 above; no Permission-posture edit is needed for it.
 
+## Deployed auth posture
+
+A jwt- or api_key-declared environment can deploy "successfully" —
+`/health` green, report table clean — and still be silently broken: the
+verifying adapter's lazy config read raises the first time a real
+request needs it. The resolved auth adapter's env keys join this
+skill's owned per-environment vocabulary to close that gap.
+
+**The gate and the vocabulary.** For each in-scope environment, the
+resolved auth adapter is read from `appAdapters.auth.id` on the
+**existing** `environments.json` desired-state read (camelCase; an
+absent field resolves `noop` — the `/archascode:apply` reader
+fallback, since older cloud builds may not populate it) — never a hand
+re-derivation from the spec. The resolved id selects the vocabulary:
+
+- **`noop`** → no auth vocabulary for this environment; the report
+  column shows `n/a`. A spec declaring `api.auth.type: jwt` whose
+  binding resolves `noop` gets no auth wiring — the binding lens is
+  the truth, deliberately.
+- **`jwt_bearer`** → `AUTH_JWKS_URL` + `AUTH_ISSUER`, a **required
+  pair**, on the app service.
+- **`api_key`** → `AUTH_API_KEY`, on the app service, as a secret (see
+  Generation, below).
+
+A missing required key is a broken deployment, not a preference — it
+is proposed every run, unlike `CORS_ORIGIN_REGEX` or the branch
+mapping. The key names are **adapter-fixed literals**: they are never
+spec-read (unlike the postgres `url` key), so there is no new spec
+read to license here — ADR 101 D3's read-count sentences are
+untouched.
+
+**Per-key ownership** (per key, not whole-family — the family is
+heterogeneous: a derived public pair, a never-written optional key,
+and a minted secret):
+
+- A required key **missing on the platform** → missing wiring,
+  proposed every run (from whatever source exists — see Plan arms,
+  below).
+- A required key **present on the platform with no local
+  counterpart** → adopted, reported as fact, never rewritten.
+- A required key present **both sides with differing values** → a
+  skew (see Plan arms, below).
+- **`AUTH_AUDIENCE` is never written, never deleted.** Platform-present
+  → reported as fact. A **non-empty** local `.env.<env>` value → one
+  report line stating it is *not* carried to the platform, naming the
+  hand lane (`railway variable set`). An **empty** seeded
+  `AUTH_AUDIENCE=` line is silently ignored. Do not "complete" the jwt
+  pair into a triple — this is a decision (the provider's tokens carry
+  no `aud`; an Auth0 fork is the named reopen), not an omission.
+- **`CLERK_SECRET_KEY`**, and any other AUTH-adjacent local key
+  outside the resolved adapter's key set, is **never** written
+  platform-side — it is provider-automation credential, not app
+  vocabulary; the deployed app never reads it.
+
+The Step 3 ownership boundary gains "the resolved auth adapter's env
+keys (app service, this section)".
+
+**Value sources and hygiene.** jwt values are **read** from local
+`.env.<env>` — the auth skill's output, and the only local record.
+This skill **reads**, never derives: no publishable-key math, no
+provider CLI, no `/archascode:auth` invocation — the dependency
+direction is one-way, and this skill stays clerk-free. The read is
+**keyed, not whole-file** (e.g. a keyed grep of the resolved adapter's
+`AUTH_*` lines only), so `CLERK_SECRET_KEY` and every other line in
+the file never enters a tool result via this skill; values are
+compared and piped, never re-printed.
+
+`AUTH_JWKS_URL` and `AUTH_ISSUER` are **pinned non-secret** — public
+URLs, a JWKS endpoint and an issuer, both served openly by the
+provider. They ride the ordinary **bare, granted, batched** Step 6
+`railway variable set` writes (the `--skip-deploys` batching rule,
+unchanged) — deliberately *not* the secret pipe, which would spend
+ungranted friction on values with no hygiene need.
+
+**`AUTH_API_KEY` generation.** `AUTH_API_KEY` is generated by this
+skill, per environment, as a secret, and **only** when the key exists
+on **neither** side (platform absent, local absent):
+
+- **Generate**: `openssl rand -hex 32` — boring, 256-bit, paste-safe.
+  The generation and the local seed are **one compound command**
+  writing the `AUTH_API_KEY=<value>` line **directly into the
+  gitignored `.env.<env>`** — never through the transcript. It
+  executes at apply time with the confirmed bundle, **before** that
+  environment's Step 6 variable batch (the platform write below reads
+  the file, so the file line must exist first) — a new write site, not
+  a Step 7.1 scope tweak: Step 7.1's SQL-scoped seed loop is
+  untouched. The same `git check-ignore -q .env.<env>` guard rule
+  applies at this site (not ignored → stop the seed, point at
+  `/archascode:init`). This is the first `.env.<env>` write this skill
+  makes for a **memory-only** environment.
+- **Platform write**: the value is piped from the file into
+  `railway variable set "AUTH_API_KEY=$(…)" --service <appService>
+  --environment <env>` — the existing Step 6/7 secret-pipe seam, same
+  acceptance (expected to fall outside the grant's prefix match at
+  runtime; may prompt or be classifier-judged; a denial takes the
+  fallback lane with the `!`-prefixed one-liner). Not a new seam
+  member — the BYO channel with this skill, rather than the user,
+  producing the file line.
+- **Per-environment distinct, always**: a key is never copied between
+  environments, and never regenerated once a value exists on **either**
+  side — a re-run adopts the platform value when the platform has one,
+  and pushes the local value when only local has one (Plan arms,
+  below); generation fires only when both sides are absent.
+- The value is **never echoed** into the transcript, the plan text, or
+  the report.
+
+**Rotation is out of scope for v1.** The hand lane, named in the
+report when relevant: edit the `.env.<env>` line and
+`railway variable set` the new value (or ask for it explicitly — a
+requested rotation is an explicit update, not reconcile drift).
+
+**Plan arms.** Per environment, after the gate above resolves a
+verifying adapter, the plan arm is chosen by where values exist.
+**Presence is judged over the adapter's whole required key set**: a
+half-present jwt pair (one key platform-side, the other nowhere)
+counts as platform-missing for the arms below — the present key is
+adopted per the ownership rules above, the absent one is what the arm
+proposes or parks on.
+
+- **Platform has all required keys** → adopted; nothing proposed
+  (values may still skew against local — below).
+- **Platform missing keys, local `.env.<env>` has them — either
+  adapter** → ordinary missing-wiring **bundle lines** (preselected,
+  the Step 3 bundle-confirmation pattern): a bare batched set for the
+  jwt pair, the secret pipe (above) for `AUTH_API_KEY` — the push-local
+  case (e.g. a key generated last run onto a since-recreated Railway
+  environment).
+- **Platform missing, local missing, adapter `jwt_bearer`** → the
+  environment **parks `blocked (auth)`**, with exactly the
+  `blocked (branch)` mechanics: its create/update lines drop from the
+  plan, other environments proceed unaffected, and the report row
+  names the fix — run `/archascode:auth` (which seeds `.env.<env>`),
+  then re-run `/archascode:deploy`. If **every** in-scope environment
+  parks this way, the run reports and stops with that instruction
+  rather than presenting an all-parked plan (the
+  spec-travels-with-branch precedent). This skill checks the
+  precondition; it never provisions the provider.
+- **Platform missing, local missing, adapter `api_key`** → **never a
+  park**: the generation (above) rides that environment's bundle as a
+  named line ("generate `AUTH_API_KEY` — written to `.env.<env>` and
+  the service variable; value never shown"). Consent is the bundle
+  confirmation itself — deliberately **no extra interview question**:
+  unlike the Explorer axis there is no real choice to ask about (the
+  binding requires the key; the only alternative is a broken
+  environment).
+- **Differing values** (platform ≠ local, either adapter) → a **skew**:
+  always **reported**, never auto-rewritten (the value may encode a
+  deliberate hand re-point of the deployed environment at a different
+  provider instance). The converge (push the local value — the pipe
+  for `AUTH_API_KEY`, a bare set for the jwt pair) enters the plan only
+  as its **own separately-confirmed line**, the same pattern as the
+  branch- and Explorer-converge lines. Declining leaves a re-shown
+  (not re-asked) report line. Skew detection compares values inside
+  tool results and never re-prints them.
+
+**Skip vs. decline.** Unchecking a bundle carries the skill's standing
+semantics, unchanged and adapter-symmetric: "skip this environment
+this run," recorded nowhere, every line re-proposed next run — the
+report row simply shows the platform fact (`missing`, annotated that
+the wiring was skipped this run). The `unset (declined)` state is
+reserved for an **explicit** decline of the auth wiring itself —
+`$ARGUMENTS` steering, or a typed mid-run request under the skill's
+standing typed-message rule (this is not a new typed-message channel)
+— with the runtime consequence named on the row (jwt: token
+verification will 500; api_key: key-bearing requests will 500).
+
+**Creation candidates** resolve the same arms at plan time: a jwt
+creation candidate with no local values parks *before* creation (never
+create a known-broken environment); its api_key sibling carries the
+generation line in its creation bundle; confirmed values join Step 6's
+batched writes. A creation candidate has no app service at plan time
+and is trivially platform-missing.
+
 ## Procedure
 
 ### Step 1 — query current Railway state
@@ -488,7 +671,7 @@ railway domain list --service <app-service> --environment <name> --json
 railway tcp-proxy list --service <db-service> --environment <name> --json
 railway deployment list --environment <name> --service <app-service> --json   # per environment
 railway volume -e <name> list --json   # per Railway environment
-railway variable list --service <app-service> --environment <name> --json   # app service — Explorer CORS classification
+railway variable list --service <app-service> --environment <name> --json   # app service — Explorer CORS + auth wiring classification
 ```
 
 `deployment list` is service-scoped and **defaults to the linked service** —
@@ -507,7 +690,11 @@ trap `deployment list`'s note above documents. App-service identification
 (Step 5's "Branch mapping writes" subsection — the `source.repo`
 case-insensitive match) therefore runs **here**, at state-gathering time,
 before classification, not only at write time; that identification rule
-stays single-homed in Step 5.
+stays single-homed in Step 5. The platform side of Deployed auth
+posture's (below) per-key classification rides this same
+app-service-scoped read — the unscoped `variable list` line above is
+liable to return the DB service's variables in a two-service
+environment, the same documented trap.
 
 **Volumes are read for the orphan report only, never written** (ADR 103
 D1). The env selector rides the `volume` noun, not `list` — putting `-e
@@ -584,6 +771,12 @@ answered):
    Railway cannot provision (D6/Step 6 below) — see the BYO note there for
    exactly what is (and is not) asked.
 
+Auth wiring asks **no** interview question: its consent rides the plan
+bundles (Deployed auth posture, above), and a jwt creation candidate
+without local values parks at plan time instead of being asked
+about — the same "steady-state runs ask no Explorer question" cadence
+above, applied to auth.
+
 ### Step 3 — build and present the plan
 
 Diff desired state (Step 2's answers) against current state (Step 1) and
@@ -643,14 +836,23 @@ deploy requires the rendered `.archascode/environments.json` **committed
 and pushed** on the deploy branch before its environments can enter a plan
 at all (committing itself stays the user's job, never this skill's).
 
+The `blocked (auth)` park (Deployed auth posture, above) — a jwt
+environment with no value source anywhere — uses these exact same
+mechanics and the same all-parked stop shape: an affected environment's
+create/update lines drop, other environments proceed, and an
+every-in-scope-environment park reports and stops rather than
+presenting an all-parked plan.
+
 **Per-environment confirmation.** One `AskUserQuestion` **multi-select**
 over per-environment apply bundles: each in-scope environment's creates
 and updates (new environment, DB services, missing or drifted wiring
-variables, `APP_ENV`, missing domain or TCP proxy) as **one selectable
-line, all preselected**. Unselecting a bundle means exactly "skip this
-environment this run" — nothing is recorded, nothing is deleted, and the
-environment re-enters the plan next run. Informational lines (below) carry
-no checkbox — they are report, not action (ADR 103 D2).
+variables, `APP_ENV`, missing domain or TCP proxy, missing auth wiring
+or an `AUTH_API_KEY` generation line — Deployed auth posture, above) as
+**one selectable line, all preselected**. Unselecting a bundle means
+exactly "skip this environment this run" — nothing is recorded, nothing
+is deleted, and the environment re-enters the plan next run.
+Informational lines (below) carry no checkbox — they are report, not
+action (ADR 103 D2).
 
 Three lines ride **outside** the bundles, each with its **own** separate
 confirmation:
@@ -669,6 +871,11 @@ confirmation:
   clear-and-load, and the admin save route mounting on a public URL)
   named in the bundle text — the database is fresh and empty, so the
   extra confirmation buys nothing there.
+- **The auth value-skew converge** (Deployed auth posture, above) — a
+  differing `AUTH_*` value between local `.env.<env>` and the platform
+  is always reported, but its converge (push the local value) is
+  confirmed on its own line, the same pattern as the branch- and
+  Explorer-converge lines above it.
 
 **Surpluses are informational pointer lines, never a delete lane** (ADR
 103 D1). Each reappears on every unscoped run while its surplus exists
@@ -713,8 +920,9 @@ above wherever it applies — neither needs detection.
 **Ownership boundary** — the plan only ever proposes changes within this
 closed vocabulary: environments, the DB services this skill provisioned,
 the wiring variables it set, `APP_ENV`, `APP_DATA`, `CORS_ORIGIN_REGEX`
-(app service, Explorer access posture, above), domain existence,
-and TCP-proxy existence. Everything
+(app service, Explorer access posture, above), the resolved auth
+adapter's env keys (app service, Deployed auth posture, above), domain
+existence, and TCP-proxy existence. Everything
 else on a service — scaling, regions, healthchecks, dashboard experiments,
 the service-level GitHub source settings, any variable this skill did not
 set — is user-owned and is never read-modify-written, "corrected," or
@@ -737,6 +945,13 @@ action), independent of Explorer enablement: advisory prose naming the
 environment, the posture found, and the fix location (`api.auth` /
 `entity.api.auth` in `spec/architecture.yml`). It never gates, parks, or
 refuses anything — see Desired state's advisory-only spec read, above.
+
+**Auth plan-screen facts.** The `AUTH_AUDIENCE` not-carried line and the
+explicit-decline (`unset (declined)`) semantics — both Deployed auth
+posture, above — surface on this plan screen where relevant: a
+non-empty local `AUTH_AUDIENCE` prints its not-carried line beside the
+affected environment's bundle, and an explicit auth-wiring decline
+shows the runtime consequence named on that environment's line.
 
 **`APP_DATA` flip semantics** — if an environment's entry is now `data:
 protected` but its service still carries `APP_DATA=ephemeral`, the plan
@@ -950,6 +1165,11 @@ For each in-scope environment, once its services exist:
   yes, `CORS_ORIGIN_REGEX` (the pinned value — Explorer access posture,
   above) joins the batched app-service writes under the `--skip-deploys`
   batching rule above.
+- **Auth wiring**: confirmed jwt pairs (`AUTH_JWKS_URL` + `AUTH_ISSUER`)
+  join the batched app-service writes under the same `--skip-deploys`
+  batching rule; `AUTH_API_KEY` rides the secret pipe after its
+  apply-time `.env.<env>` seed (mechanics single-homed in Deployed auth
+  posture, above).
 - **Domain**: list the app service's existing domains first; any existing
   one satisfies this step. `railway domain` runs **only** when none
   exists yet (its behavior on re-invocation is deliberately not relied
@@ -1041,6 +1261,68 @@ For each in-scope environment, once its services exist:
    deploy (overlapping the first full build — unbounded), so the probe
    defers to `deployment list` status and never ⚠s while a deployment is
    in flight.
+
+   **A third, auth leg** runs for every in-scope environment **with a
+   domain** whose resolved adapter verifies (`jwt_bearer` or `api_key` —
+   Deployed auth posture, above):
+
+   - **Probe route derivation**: one entity list route whose
+     declaration-level posture resolves `required`, ADR-059-disabled ops
+     skipped, `api.base_path` concatenated per ADR 098 — fed by Desired
+     state's advisory-only spec read, above (exactly
+     `/archascode:auth`'s app-tier recipe). **Zero routes resolving
+     `required`** → skip the leg with the named state
+     `no required routes to probe` — the 401 expectations below would be
+     false negatives.
+   - **jwt matrix, negative-only** (this skill holds no provider
+     credential; the positive token-mint proof stays
+     `/archascode:auth`'s job):
+     - no token → expect **401**. A **200 is diagnosed, not just
+       failed**: the pre-ADR-107 fail-open (an app rendered by an older
+       engine where `type: jwt` without `scheme` rendered no
+       extraction); fix: re-render with a current engine.
+     - garbage token (`Authorization: Bearer not-a-token`) → expect
+       **401** (the adapter loaded its config and rejected the token).
+       A **500 is the wiring signature, with exactly one cause**: the
+       adapter's lazy config read raised on a missing env var
+       (`AUTH_ISSUER` read first) — the platform variables are missing
+       or not yet applied to the serving deployment. It is deliberately
+       **not** a JWKS-reachability signal: the emitted adapter wraps
+       verification in a PyJWT-error catch that folds fetch failures
+       into the 401 arm, and a garbage token dies at header decode
+       before any network I/O anyway.
+     - **the JWKS value probe**: a plain GET of the `AUTH_JWKS_URL`
+       value (pinned non-secret, the same ungranted-curl lane),
+       expecting a JWKS-shaped JSON document — laptop-side value
+       sanity only; it proves nothing about Railway egress.
+     - **Named limitation**, stated here and in the report: JWKS
+       reachability *from Railway egress* and real-token verification
+       are invisible to this negative matrix (a broken-egress
+       environment 401s every leg and reads healthy). The positive
+       lane is `/archascode:auth`'s app-tier smoke, pointed at the
+       deployed domain as its base URL.
+   - **api_key matrix**: no key → **401**; wrong key (a fixed garbage
+     value) → **401**. A **500 on any key-bearing leg** is the wiring
+     signature: `AUTH_API_KEY` missing or empty on the serving
+     deployment. The **correct-key leg** (expanded from `.env.<env>`
+     into the curl header via shell substitution — never printed) →
+     **200**, and runs **only** when a local value exists and no skew
+     is open: an adopted platform-only key has no local value to
+     expand — the positive leg is skipped with the named state
+     `smoke: skipped — no local key` (the negative and wrong-key legs
+     still run and still discriminate 401 from 500); an environment
+     with a **declined skew** skips the positive leg and annotates the
+     `⚠ skew` row instead — probing with the stale local key would
+     401 and be misdiagnosed.
+   - **Lane and poll**: plain HTTP GETs in the existing ungranted curl
+     lane (the `/health` and synthetic-Origin precedent above,
+     client-agnostic); after a same-run variable write, this leg
+     respects the existing poll rule above before ⚠ing (variables
+     apply on the write's redeploy).
+
+   Item 4 below and Step 7.1's SQL-scoped `.env.<env>` seed loop are
+   **untouched** by this leg — the `AUTH_API_KEY` seed is a Deployed
+   auth posture write site, not a 7.1 scope tweak.
 4. **Deployed-branch verification**, two arms scoped by whether this run
    wrote the mapping (rescoped per Step 5's "Branch mapping writes" /
    converge semantics — the `dashboard-configured` informational lane from
@@ -1092,6 +1374,29 @@ disagree:
 environments — the two states with a computable expected serving state. A
 hand-managed environment shows config state and probe fact side by side,
 with no skew judgment and no converge offer.
+
+The table also gains an **auth** column, whose primary value is
+**config-truth** (platform key presence — Deployed auth posture,
+above), annotated from the smoke leg (Step 7 item 3). The state set is
+**total**:
+
+- `n/a` — resolved adapter is `noop`;
+- `wired` — all required keys present platform-side; annotated
+  `(smoke: ok)`, `(smoke: skipped — no required routes)`,
+  `(smoke: skipped — no local key)`, `(unverified — no domain)`, or
+  `⚠ smoke failed` with the Step 7 diagnosis;
+- `missing` — required keys absent platform-side, with the
+  environment's bundle skipped or its wiring lines otherwise unapplied
+  this run; annotated `(re-proposed next run)`;
+- `blocked (auth)` — the jwt park (Deployed auth posture, above), fix
+  pointer in the row;
+- `unset (declined)` — an explicit decline of the auth wiring, either
+  adapter, with the runtime consequence named;
+- `⚠ skew` — differing values, converge declined (re-shown until
+  resolved; carries the positive-leg annotation per Step 7 item 3).
+
+The `AUTH_AUDIENCE`-not-carried line and the rotation hand lane
+(Deployed auth posture, above) print beside the table when relevant.
 
 Step 3's informational pointer lines (orphans, the
 default `production` environment, stranded services/volumes, surplus
@@ -1150,6 +1455,14 @@ to pick it up.
   never merges, overwrites, "corrects," or deletes a hand-managed CORS
   value; an enable/disable request on a hand-managed environment is a
   stop-and-explain (Explorer access posture, above).
+- **Write `AUTH_AUDIENCE` or `CLERK_SECRET_KEY` platform-side, ever** —
+  nor any other AUTH-adjacent local key outside the resolved adapter's
+  own key set (Deployed auth posture, above).
+- **Invoke a provider CLI or `/archascode:auth`** — this skill reads
+  auth's output; the dependency direction is one-way.
+- **Print a generated or read auth key value, copy a key between
+  environments, or regenerate an existing key unasked** — the D2
+  absence properties (Deployed auth posture, above).
 
 ## Failure modes
 
@@ -1181,6 +1494,9 @@ to pick it up.
 | Environment's entry on B differs from this checkout's entry      | Park that environment `blocked (branch)`; if B ≠ deploy branch, finish the promotion or run from a checkout of B; if B == deploy branch, commit and push the rendered `environments.json`, then re-run. |
 | Explorer enable/disable requested on a hand-managed environment | Stop-and-explain: the skill never merges, overwrites, or reasons about a user's CORS surface; hand it back with the state found. |
 | Steady-state Explorer skew (probe-truth contradicts config-truth, absent/skill-owned envs only) | Always reported (⚠ skew); converge offered only as its own separately-confirmed line; declining leaves a re-shown (not re-asked) report line. Hand-managed envs carry no skew judgment. |
+| jwt environment with no `AUTH_JWKS_URL`/`AUTH_ISSUER` value source anywhere (platform and local both absent) | Park that environment `blocked (auth)`; fix = run `/archascode:auth`, then re-run `/archascode:deploy`; every-in-scope-environment park → report and stop rather than an all-parked plan. |
+| Auth value skew (`AUTH_*` differs between local `.env.<env>` and the platform) | Always reported (⚠ skew); converge offered only as its own separately-confirmed line, never bundled; declining leaves a re-shown (not re-asked) report line. |
+| Explicit auth-wiring decline (`$ARGUMENTS` steering or a typed mid-run request) | Report `unset (declined)` with the runtime consequence named (jwt: token verification will 500; api_key: key-bearing requests will 500). |
 
 No retries beyond what is stated above. The user re-invokes after
 addressing whatever a stop pointed at.
@@ -1216,3 +1532,10 @@ addressing whatever a stop pointed at.
   plan/apply surface once its runner and resource vocabulary mature.
 - **Railway's own MCP server / agent skills** — an alternative substrate
   for the CLI calls, if it stabilizes.
+- **Auth follow-ons** — key rotation stays an explicit-update lane (the
+  hand `.env.<env>` edit + `railway variable set`, never automated); an
+  Auth0 provider fork would activate the `AUTH_AUDIENCE` arm this
+  version leaves never-written, with per-provider audience policy
+  replacing the flat rule; a positive jwt smoke tier (a real minted
+  token, not just the negative matrix) is possible only if a future
+  provider skill records a smoke credential this skill may read.
