@@ -1,7 +1,7 @@
 ---
 name: auth
 description: Identity-provider reconcile for a jwt-declared archascode project — an interview + plan/confirm/apply loop over the Clerk CLI that adopts or creates the Clerk application, converges session-token claims so the seeded claims mapper populates email/name/roles, derives and writes AUTH_JWKS_URL/AUTH_ISSUER into gitignored .env.<env> files, and proves the loop with a headlessly minted token. Clerk is the only v1 provider. Accepts a declared environment name as an argument to scope the run.
-allowed-tools: Bash(npx -y clerk whoami:*), Bash(npx -y clerk auth:*), Bash(npx -y clerk api:*)
+allowed-tools: Bash(npx -y clerk@3 whoami:*), Bash(npx -y clerk@3 auth:*), Bash(npx -y clerk@3 api:*), Bash(npx -y clerk@3 env pull:*)
 ---
 
 # /archascode:auth
@@ -73,22 +73,32 @@ under Procedure, below).
 ## Permission posture
 
 This skill's frontmatter carries an `allowed-tools` grant covering
-three npx-clerk verb families (`whoami` / `auth` / `api`), so a default
-auto-mode run needs no permission setup for the Clerk CLI calls it
-makes.
+four npx-clerk verb families (`whoami` / `auth` / `api` / `env pull`),
+so a default auto-mode run needs no permission setup for the Clerk CLI
+calls it makes.
 
-**Invocation form is pinned to the npx-clerk prefix** uniformly — no
-install step, and every grant entry shares one stable prefix family.
+**Invocation form is pinned to the npx-clerk `@3` prefix** uniformly — no
+install step, and every grant entry shares one stable, version-pinned
+prefix family. The `@3` pin is what makes the invocation form actually
+major-safe: the invocation without a version pin follows npm's
+`latest` dist-tag across majors, silently and fleet-wide, at exactly
+the moment the pin should instead force a deliberate look. A Clerk major
+bump is
+therefore a **deliberate re-verify-then-edit-everywhere change** — the
+carrier and grant semantics get re-verified against the new major, then
+every spelling in this body and the grant moves together in one edit;
+the assembly guard (C1) fails the kit if that rename is ever partial.
 The bare clerk binary (no `npx -y` prefix) is a rejected alternative
 (it would require an install step and double every grant entry for
-zero capability).
-**Granted invocations run bare** — no redirection, no capture via
-`>`/`>>`; redirection defeats the grant's prefix match.
+zero capability). **Granted invocations run bare** — no redirection, no
+capture via `>`/`>>`; redirection defeats the grant's prefix match (the
+`env pull` fetch lane below writes via its own `--file` flag, not
+redirection, so it stays within this rule).
 
-**The layered-control statement.** `Bash(npx -y clerk api:*)` knowingly
+**The layered-control statement.** `Bash(npx -y clerk@3 api:*)` knowingly
 covers a verb that *could* spell destructive calls — Clerk's CLI is
 effectively single-verb (every Platform API call rides
-`npx -y clerk api --platform <path>`), which defeats a railway-style
+`npx -y clerk@3 api --platform <path>`), which defeats a railway-style
 carve-out-by-verb-spelling (there is no second verb to carve out). The
 compensating control is layered, and each layer is precise about what
 it carries:
@@ -111,26 +121,32 @@ of a spelling nobody has seen yet.
 
 **Two credential tiers, disjoint blast radii:**
 
-- **The workspace CLI session** (`npx -y clerk auth login`, browser
+- **The workspace CLI session** (`npx -y clerk@3 auth login`, browser
   PKCE, loopback — run in the background with the URL relayed the
   moment it appears, the `/archascode:login` UX class) backs every
-  `npx -y clerk api --platform` read and write. Its blast radius is the
+  `npx -y clerk@3 api --platform` read and write. Its blast radius is the
   **whole workspace** — every application the logged-in account can
   see — which is exactly why every claims/env write below is
   plan/confirm-gated.
-- **The per-instance secret key** backs only the D5 smoke calls. It
+- **The per-instance secret key** backs only the smoke calls (see The
+  smoke leg). It
   enters **only** via the gitignored `.env.<env>` (the seeded
   `# CLERK_SECRET_KEY=` comment line), is **never typed into chat** (a
   typed reply kills the `allowed-tools` grant — spiked harness
   physics — and a secret does not belong in a transcript), is never
-  persisted anywhere else by this skill, and is never echoed. An absent
-  key means the smoke leg is **skipped** with a fill-in instruction,
-  not blocked. `CLERK_BAPI_SCOPES`-scoped keys are a narrowing option a
+  persisted anywhere else by this skill — **sole exception: the fetch
+  lane's scratch file** (see The smoke leg) — outside the repo, spliced
+  from, deleted in the same confirmed action — and is never echoed. An
+  absent key means the fetch lane's plan-time question (see The smoke
+  leg); declined → **skipped** with a fill-in instruction, not blocked.
+  `env pull` is itself a read verb with disclosure consequences
+  (fetch-not-mint, spiked) — granted as the fourth npx-clerk family.
+  `CLERK_BAPI_SCOPES`-scoped keys are a narrowing option a
   user may set up on their own; this skill neither requires nor gates
   on them.
 
 **The ungranted-curl seam** (the `/archascode:deploy` `environment
-edit` pattern): the Backend API smoke calls in D5 ride plain `curl`,
+edit` pattern): the Backend API smoke calls (see The smoke leg) ride plain `curl`,
 deliberately outside both the extraction grammar and the grant — the
 harness's own prompt or classifier friction stacks on the already-
 confirmed smoke plan line. The secret key expands from a shell variable
@@ -165,8 +181,8 @@ construction.
    later rerun picks parked work up by reconcile construction.
 
 **The settings-rule offer** is lazy and **reactive-only** — it appears
-only after an actual denial, mirroring `/archascode:deploy`'s A1-D5
-posture. Before offering, best-effort preflight: read
+only after an actual denial, mirroring `/archascode:deploy`'s
+settings-rule-offer posture. Before offering, best-effort preflight: read
 `~/.claude/settings.json`, `<project>/.claude/settings.json`, and
 `<project>/.claude/settings.local.json` (a missing file means no
 rules), and prefix-match the denied command's prefix against each
@@ -196,8 +212,8 @@ with the fallback lane above as the net.
 Checked in order; each is a stop-and-explain, never a stack trace.
 
 1. **Rendered project.** `.archascode/environments.json` exists.
-   Absent → stop: "render first" (`/archascode:apply`) — ADR 099's
-   rule restated: absence means "never rendered or cleaned."
+   Absent → stop: "render first" (`/archascode:apply`) — the
+   environments-file rule restated: absence means "never rendered or cleaned."
    `schemaVersion != 1` → the same stop, fatal — never resolve against
    a stale table.
 2. **The spec declares a jwt need.** `api.auth.type: jwt` must be set
@@ -222,11 +238,11 @@ Checked in order; each is a stop-and-explain, never a stack trace.
    - A scoped run naming a declared but out-of-scope (e.g. noop-bound)
      environment → the same explanation, scoped to it.
 4. **`api_key` mode is out of scope by construction.** It has no
-   provider — nothing external to reconcile (ADR 107 owns the
-   adapter; the completing `wire` mode is a future ADR, not this
+   provider — nothing external to reconcile (the engine owns the
+   adapter; completing its wiring is a future decision, not this
    skill's job).
-5. **Authenticated.** `npx -y clerk whoami` succeeds. If not, run
-   `npx -y clerk auth login` **in the background** (the
+5. **Authenticated.** `npx -y clerk@3 whoami` succeeds. If not, run
+   `npx -y clerk@3 auth login` **in the background** (the
    `/archascode:login` pattern: the activation URL prints as soon as
    the flow starts), relay the activation URL to the user the moment
    it appears, poll until the background task exits, then re-check.
@@ -246,7 +262,7 @@ to run — is the `AUTH_ISSUER=` line already present in each
 1. **Adopt-from-values.** Read `AUTH_ISSUER` from every in-scope
    `.env.<env>` present locally; derive each instance domain from it;
    match against the workspace inventory
-   (`npx -y clerk api --platform /platform/applications`, which
+   (`npx -y clerk@3 api --platform /platform/applications`, which
    returns applications and their instances including publishable
    keys — publishable keys decode to instance domains, so discovery
    needs no prior knowledge). A match **adopts the application
@@ -353,8 +369,27 @@ read-back-compare with one re-read-and-retry.
 diff** — the plan line shows the actual diff the API computes, never a
 predicted one. A same-value write is a no-op by `config_version`
 semantics — nothing changes, nothing to confirm beyond the normal
-convergence line. All claims spellings ride
-`npx -y clerk api --platform …`.
+convergence line.
+
+**The claims-config carrier path is pinned** (live-verified on Clerk
+CLI 3.1.0). All claims spellings ride `npx -y clerk@3 api --platform`
+against
+
+```
+/platform/applications/{application_id}/instances/{environment_type}/config
+```
+
+nested under the application and keyed by the instance's
+`environment_type` value (`development` / `production`) as the path
+segment — both values come from the `/platform/applications`
+inventory, and the `ins_…` instance id is an inventory field, never a
+path segment. Read with `?keys=session`; the config vocabulary's JSON
+Schema lives at `…/config/schema`; the dry-run plan surface is
+`PATCH …/config?dry_run=true`; the applied write is `PATCH …/config`
+with `--yes`. Platform paths are invoked directly: the endpoint table
+behind `npx -y clerk@3 api ls` covers the Backend API only, so an `ls`
+miss on `platform`/`claims` says nothing about this carrier — treat
+the pinned path above, not `ls` discovery, as the existence check.
 
 ## Owned vocabulary — env values
 
@@ -379,11 +414,14 @@ writing. Three-state classification per key, same shape as claims:
 Do not "complete" the pair into a triple. An existing **non-empty**
 `AUTH_AUDIENCE` value is reported with a warning (it would fail
 verification against a Clerk token) but never deleted. An **empty**
-`AUTH_AUDIENCE=` line — the common case for a post-ADR-107 seeded env —
-is harmless and draws no warning.
+`AUTH_AUDIENCE=` line — the common case for a seeded env on a current
+engine — is harmless and draws no warning.
 
-The write also seeds a commented `# CLERK_SECRET_KEY=` line — the D5
-smoke-leg key channel, left for the user to fill in by hand.
+The write also seeds a commented `# CLERK_SECRET_KEY=` line — the
+smoke-leg key channel, left for the user to fill in by hand (the
+consented fetch lane, Development-mapped instances only, may later
+replace this comment in place with a live value — see The smoke leg;
+hand fill-in remains the lane for a declined fetch and for Production).
 
 **Before any `.env.<env>` write**: `git check-ignore -q .env.<env>`.
 Not ignored → **stop** and point at `/archascode:init`'s gitignore
@@ -391,7 +429,7 @@ step — never create a trackable file destined to hold a secret.
 
 **Railway-side `AUTH_*` values are explicitly not this skill's
 vocabulary.** They belong to `/archascode:deploy`'s Deployed auth
-posture section (ADR 110), which *reads* this skill's output; this
+posture section, which *reads* this skill's output; this
 skill never writes a Railway variable and never invokes
 `/archascode:deploy`.
 
@@ -406,8 +444,85 @@ every environment mapped to that instance.
 **Secret-key resolution.** The instance's secret key is the first
 non-empty `CLERK_SECRET_KEY` among the mapped in-scope environments'
 `.env.<env>` files. Multiple differing non-empty values for one
-instance → stop-and-ask. Absent → the leg is **skipped** with the
-fill-in instruction (not blocked).
+instance → stop-and-ask. Absent → the fetch lane below (Development) or
+the fill-in instruction (Production, or a declined fetch).
+
+### The fetch lane
+
+When the smoke leg is wanted and the mapped instance's
+`CLERK_SECRET_KEY` is absent across every in-scope `.env.<env>` file,
+this skill can pull the key itself rather than always falling back to
+a hand fill-in. **Scope: Development-mapped instances only** — a
+Production-mapped instance's absent key always takes the fill-in hand
+lane below, no fetch option offered (a production secret key is the
+highest-blast-radius credential in this whole surface, and the
+Production smoke already degrades gracefully on its own).
+
+**Trigger and question.** At plan time, beside the smoke plan line (so
+apply stays one confirmed batch), a new `AskUserQuestion` offers three
+options:
+
+- **Fetch via the workspace session** (suggested) — pull the key using
+  the same CLI session already backing every other Platform API call.
+- **I'll fill it by hand** — skip this run's smoke leg and print the
+  fill-in instruction (the declined-fetch shape; this is also what a
+  Production-mapped instance always gets, unasked).
+- **Skip the smoke leg** — proceed without the smoke leg this run.
+
+**The dependency park.** The fetch depends on its environment's
+`.env.<env>` value write (the derived `AUTH_JWKS_URL`/`AUTH_ISSUER`
+pair, above) having already applied this run. If the user skip-omitted
+that write from the plan, the fetch parks with the dependency named —
+it never creates a key-only `.env.<env>` that no later
+adopt-from-values read could map back to an application.
+
+**Mechanics — scratch-then-splice, never a direct write.** On consent,
+pull into a `mktemp`-shaped scratch file **outside the repo**:
+
+```
+npx -y clerk@3 env pull --app <id> --instance dev --file <scratch> --mode agent
+```
+
+`--mode agent` is carried **verbatim** — the non-interactive mode; the
+`whoami`/`auth`/`api` families are unchanged and gain no `--mode` flag
+of their own, they were verified without one. Read exactly the
+`CLERK_SECRET_KEY` line out of the scratch file, then write it into
+**every mapped in-scope environment's** gitignored `.env.<env>` (the
+same `git check-ignore -q` guard as every other `.env.<env>` write in
+this skill) — when one instance maps several in-scope environments
+(the ordinary `dev` + `qa` shape), the splice writes all of them, the
+self-consistent choice given secret-key resolution's first-non-empty
+rule above, which would otherwise leave sibling files permanently
+unfilled. The splice **replaces the seeded `# CLERK_SECRET_KEY=`
+comment line in place** (uncommented, valued) when present, and
+appends the line otherwise — it never leaves an unfilled-looking
+comment sitting above a live key. The scratch file is deleted
+immediately, in the same confirmed action, and the pulled value never
+appears in the transcript (shell redirection/splice, the same pattern
+the smoke recipe's `curl` calls already use for `CLERK_SECRET_KEY`)
+— **sole exception: the scratch file** — outside the repo, spliced
+from, deleted in the same confirmed action.
+
+**The rejections, stated.** Pulling directly into the target
+`.env.<env>` (pointing `env pull`'s own `--file` flag straight at it,
+skipping the scratch file entirely) is rejected outright: `env pull`'s
+merge-with-replace behavior would **clobber** a hand-set
+`CLERK_SECRET_KEY` (the splice above only ever fires on the absent
+arm, making overwrite structurally impossible), and it also writes
+`CLERK_PUBLISHABLE_KEY` into the target file — a key this skill does
+not own and must **never write to any `.env.<env>`** (the frontend
+axis may want it someday; that is a
+provider-fork or frontend-handoff question, not a side effect of a
+backend-key fetch). Fetch-as-compare is rejected too: **a present key
+is adopted blind, never pulled to check** — pulling a present key would
+mean fetching a secret with no write purpose, disclosure without
+benefit.
+
+`CLERK_SECRET_KEY` stays a **channel, not owned vocabulary** even
+through the fetch lane — seeded only on consent, never rewritten,
+never compared, never echoed (the same generate-only-when-absent
+posture `/archascode:deploy`'s `AUTH_API_KEY` uses, applied here to a
+fetched rather than generated value).
 
 **The recipe**, verbatim from the spikes, over the Backend API via
 ungranted `curl` (the key expands from a shell variable read out of
@@ -430,11 +545,11 @@ ungranted `curl` (the key expands from a shell variable read out of
    `required` (app-wide cascade default plus per-entity `api.auth`
    overrides, the same coarse declaration-level read
    `/archascode:deploy`'s protected-anonymous advisory uses, skipping
-   ADR-059-disabled ops), with `api.base_path` concatenated per ADR
-   098. Assert the matrix: no token → 401, garbage token → 401, live
+   per-op-disabled ops), with `api.base_path` concatenated per its
+   projection rule. Assert the matrix: no token → 401, garbage token → 401, live
    token → 200.
    - **A 200 on the no-token leg is diagnosed, not just failed**: name
-     the likely cause — an app rendered by a pre-ADR-107 engine, where
+     the likely cause — an app rendered by an older engine, where
      `type: jwt` without `scheme: bearer` rendered no extraction at
      all (fail-open) — and the fix: re-render with a current engine
      (which now defaults the scheme to bearer), or set
@@ -461,7 +576,7 @@ lane (skip the leg, report it).
 
 ## Procedure
 
-The run: **preflight** (Preconditions; `npx -y clerk whoami` / login) →
+The run: **preflight** (Preconditions; `npx -y clerk@3 whoami` / login) →
 **discovery + app resolution** (the application ladder) → **instance
 mapping** (ask-once, adopt-thereafter) → **classification** (claims
 `dry_run=true` diffs, `.env` three-state per environment) → **one
@@ -517,7 +632,7 @@ Below the table:
   window is at most ~120 seconds (60 s token lifetime + 60 s clock
   leeway).
 - Optionally, a pointer to the documented `ui/` pattern for
-  per-instance SPA configuration, for projects using ADR 096's spec-
+  per-instance SPA configuration, for projects using spec-
   declared UI serving.
 
 ## What this skill does NOT do
@@ -533,11 +648,13 @@ Below the table:
   a stop-and-explain.
 - **Write `AUTH_AUDIENCE` for Clerk**, ever.
 - **Persist or echo the secret key** anywhere — not to a file, not
-  into the transcript, not into the final report.
+  into the transcript, not into the final report — **sole exception:
+  the fetch lane's scratch file** (The smoke leg) — outside the repo,
+  spliced from, deleted in the same confirmed action.
 - **Propose an instance-mapping change unprompted.**
 - **Drive DNS** — Production domain setup is dashboard-referenced.
 - **Write Railway variables** — that is `/archascode:deploy`'s job
-  (its Deployed auth posture section, ADR 110); this skill never
+  (its Deployed auth posture section); this skill never
   invokes `/archascode:deploy`.
 - **Invoke any destructive platform action beyond the marker-named
   smoke fixture's teardown.**
@@ -555,16 +672,18 @@ Below the table:
 | Empty `environments` table | Stop: "no environments declared." |
 | Scoped run names an out-of-scope environment | Stop: the same resolved-adapter explanation, scoped to it. |
 | Unknown single-token `$ARGUMENTS` | `AskUserQuestion`: near-match, treat-as-steering, or cancel. |
-| `api_key`-only project | Stop: no provider to reconcile; ADR 107 owns the adapter. |
-| Not authenticated with Clerk | Background `npx -y clerk auth login`, relay the URL, re-check on completion. |
+| `api_key`-only project | Stop: no provider to reconcile; the engine owns the adapter. |
+| Not authenticated with Clerk | Background `npx -y clerk@3 auth login`, relay the URL, re-check on completion. |
 | Conflicting `AUTH_ISSUER` derivations across environments | Report the conflict as fact; stop-and-ask. |
 | Hand-managed claims collision + a "fix" request | Stop-and-explain; never rewritten. |
 | Existing non-empty `AUTH_AUDIENCE` | Report with a warning; never deleted. An empty line draws no warning. |
 | Differing existing `.env.<env>` values | Reported, stop-and-ask (may be another provider or hand-managed). |
 | Multiple differing `CLERK_SECRET_KEY` values for one instance | Stop-and-ask. |
-| `CLERK_SECRET_KEY` absent for an in-use instance | Smoke leg skipped with the fill-in instruction, not blocked. |
+| `CLERK_SECRET_KEY` absent for a Development-mapped in-use instance | `AskUserQuestion`: fetch via the workspace session (suggested) / fill by hand / skip the smoke leg. |
+| `CLERK_SECRET_KEY` absent for a Production-mapped in-use instance | No fetch offered; skipped with the fill-in instruction, not blocked. |
+| Fetch consented but its environment's `.env.<env>` value write was skip-omitted | Fetch parks, naming the dependency; never writes a key-only `.env.<env>`. |
 | Production headless mint fails | Report `configured (smoke unverified)`; never blocks the run. |
-| No-token app-tier probe returns 200 | Diagnose as a likely pre-ADR-107 fail-open engine; name the re-render fix. |
+| No-token app-tier probe returns 200 | Diagnose as a likely older-engine fail-open; name the re-render fix. |
 | Permission denial (classifier or declined prompt) | Stop that action; offer the `!`-prefixed one-liner and the settings-rule route; park dependents `blocked (permissions)`. |
 | `.env.<env>` not gitignored | Stop the write; point at `/archascode:init`'s gitignore step. |
 
@@ -579,7 +698,7 @@ addressing whatever a stop pointed at.
   persistence-only fence; `api_key` completes there, `jwt` parks
   pointing here until this skill's own park lands as the blessed
   entry.
-- **The deploy amendment has landed (ADR 110)** — `AUTH_*` Railway
+- **The deploy-side amendment has landed** — `AUTH_*` Railway
   vocabulary, a `blocked (auth)` plan-time park, and a deployed auth
   smoke leg are now live in `/archascode:deploy`'s Deployed auth
   posture section, reading this skill's output. What remains is the
@@ -591,10 +710,14 @@ addressing whatever a stop pointed at.
   bearing a Clerk token.
 - **The roles-source interview** — `{{org.role}}`-shaped claims when
   org-mode demand materializes.
-- **`GET /auth/config` micro-ADR** — only if the documented `ui/`
+- **`GET /auth/config` — a future decision** — only if the documented `ui/`
   pattern proves insufficient for per-instance SPA configuration.
 - **Re-verify triggers** — a Clerk CLI major-version bump, or
-  `platform/beta.yml` leaving beta, per the spike docs' clauses.
+  `platform/beta.yml` leaving beta, per the spike docs' clauses. A
+  major-version bump is an **enforced edit, not a comment**: the `@3`
+  pin plus the assembly guard (C1) fail the kit on a partial re-pin, so
+  the re-verify-then-edit-everywhere procedure above (Permission
+  posture) cannot be silently skipped.
 - **The second-application QA-isolation shape** — deferred; its
   reopen trigger is a user actually asking for stronger QA isolation
   than the Development instance's shared issuer provides.

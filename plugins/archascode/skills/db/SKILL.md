@@ -9,8 +9,8 @@ Thin wrapper over the `archascode db` CLI verb family (`plan` and
 `apply`). The CLI does all the real work — verify the env exists in the
 manifest, check every cut file under `spec/locked/.../migrations/` is
 committed to git, then either preview (`plan`) or spawn `python aac.py
---env <name> migrate` (`apply`). Both verbs stay cloud-free (ADR 088
-D4); this skill adds a non-blocking advisory preflight of its own before
+--env <name> migrate` (`apply`). Both verbs stay cloud-free;
+this skill adds a non-blocking advisory preflight of its own before
 `apply` (see below). This skill exists so the user can pick the env (or
 accept the default) and choose preview-vs-mutate from a Claude session
 without switching to a terminal.
@@ -162,7 +162,7 @@ after addressing the gap.
 
 ### The `plan` path
 
-Read-only — writes nothing (ADR 056 semantics: `db plan` never bootstraps
+Read-only — writes nothing (`db plan` never bootstraps
 `schema_version`, never issues `CREATE DATABASE`, and refuses identically
 to `apply` on protected divergence).
 
@@ -199,16 +199,17 @@ On a nonzero exit, surface the CLI's message and stop (no closing line).
 - **Render or cut migrations.** Both `plan` and `apply` assume the
   project is already rendered. Pending un-cut DDL is surfaced only by
   the advisory `cut --dry-run` preflight above (non-blocking) — `plan`
-  and `apply` themselves do not check for it (ADR 088 D4). If the
+  and `apply` themselves do not check for it. If the
   preflight flags pending changes, point the user at
   `/archascode:cut-schema-migration`.
 - **Commit cut files for the user.** Uncommitted cuts under
   `spec/locked/.../migrations/` are an exit-1 from the CLI. The user
   commits and re-invokes.
 - **Expose `--baseline-existing-target` or `--up-to`.**
-  `--baseline-existing-target` is a one-shot rescue flag for protected
-  targets that pre-date ADR 021; `--up-to` bounds `db plan`/`db apply` to
-  an inclusive version prefix (ADR 069). Both are drop-to-terminal: run
+  `--baseline-existing-target` is a one-shot rescue flag for existing
+  protected targets whose schema was created before archascode managed
+  it; `--up-to` bounds `db plan`/`db apply` to
+  an inclusive version prefix. Both are drop-to-terminal: run
   `archascode db apply --env <name> --baseline-existing-target` or
   `archascode db apply --env <name> --up-to <bound>` directly.
 - **Set or change `defaultEnvironment`.** That's a spec-level

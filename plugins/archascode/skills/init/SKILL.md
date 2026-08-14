@@ -24,7 +24,7 @@ After this skill runs:
 - `.venv/` exists at the project root.
 - All declared deps are installed.
 - The app launches with `uv run python aac.py up` once `aac.py` is present
-  (i.e. post-render — every render emits it; ADR 008 A2). The lifecycle
+  (i.e. post-render — every render emits it unconditionally). The lifecycle
   script is invoked by file path — there is no `aac` console-script entry
   point.
 
@@ -43,7 +43,7 @@ What this skill installs:
   "Selected anywhere" means `adapters.auth.id == "jwt_bearer"` OR any
   `port_bindings.<lens>.app_adapters.auth == "jwt_bearer"` — a binding
   override is enough even when the spec-level default is `noop`. The
-  rendered `jwt_bearer` adapter imports PyJWT (ADR 024).
+  rendered `jwt_bearer` adapter imports PyJWT.
 
 That's the full mapping today. Future adapters extend the table; the rule
 "declare adapter in spec → re-run `/archascode:init`" stays the same.
@@ -114,8 +114,8 @@ fi
 
 ### Step 3 — read spec and write `pyproject.toml`
 
-The whole job — parse the spec, compute deps, write the file, and (per
-ADR 070) scaffold a default `environments:` block when the spec declares
+The whole job — parse the spec, compute deps, write the file, and
+scaffold a default `environments:` block when the spec declares
 none — lives in one quoted-heredoc Python block. `<<'PY'` (single-quoted
 delimiter) blocks all shell expansion, so the Python body needs no `\\`,
 `\"`, or `\$` escaping. Python sees the script byte-for-byte. The
@@ -184,7 +184,7 @@ if os.path.exists("spec/architecture.yml"):
     ]
     has_jwt_bearer = "jwt_bearer" in ([auth_default] + binding_auths)
 
-    # ADR 070 Decision 4: scaffold a minimal 'dev' environment when the spec
+    # Scaffold a minimal 'dev' environment when the spec
     # declares none, via the same round-trip object — comments, key order,
     # and formatting elsewhere in the file are preserved by ruamel's dumper.
     if not spec.get("environments"):
@@ -293,8 +293,8 @@ Then independently check whether it already ignores `__pycache__/`
 __pycache__/
 ```
 
-Then independently check whether it already ignores the `.env` files
-(ADR 055). Accept a reasonable existing form — a bare `.env` line plus a
+Then independently check whether it already ignores the `.env` files.
+Accept a reasonable existing form — a bare `.env` line plus a
 `.env.*` line, or an equivalent that ignores both the base `.env` and
 the per-environment `.env.<env>` overlays. The required end state is:
 `.env` and `.env.*` ignored, **but** the committed
@@ -302,7 +302,7 @@ the per-environment `.env.<env>` overlays. The required end state is:
 present, append:
 
 ```
-# Local environment files (secrets), per ADR 055. The base .env and
+# Local environment files (secrets). The base .env and
 # per-environment .env.<env> overlays are ignored; the committed
 # .env.<env>.example templates are not.
 .env
@@ -319,31 +319,33 @@ ignore for git to honor it — append it at the end of the block / file.
 Then independently check whether the existing `.gitignore` ignores
 `seeds/` (accept any form — `seeds`, `seeds/`, `/seeds`, `/seeds/`) **or**
 the legacy `snapshots/` spelling (accept any form — `snapshots`,
-`snapshots/`, `/snapshots`, `/snapshots/`). Projects scaffolded before
-ADR 094 (or before ADR 105's rename) carry such a rule, typically with a
-comment citing ADR 012's `/admin/snapshot` endpoints. Delete the rule and
+`snapshots/`, `/snapshots`, `/snapshots/`). Older projects scaffolded
+before seed data was autoloaded at boot (or before the directory was
+renamed from `snapshots/` to `seeds/`) carry such a rule, typically with
+a comment citing the old `/admin/snapshot` endpoints. Delete the rule and
 its accompanying comment (whichever spelling matched): `seeds/` must be
-committed, because the generated app autoloads it at boot (ADR 094,
-renamed by ADR 105) and a build-from-repo PaaS deploy can only autoload
+committed, because the generated app autoloads it at boot
+and a build-from-repo PaaS deploy can only autoload
 what git carries. Tell the user seed data is now tracked and, if a
 `seeds/` directory already exists, remind them to `git add seeds/` so the
 seed data ships with the next push.
 
 Then, when `snapshots/manifest.json` exists on disk and `seeds/` does
-not, this is a legacy pre-ADR-105 project: run `git mv snapshots seeds`
+not, this is a legacy project predating the seed-vocabulary rename: run
+`git mv snapshots seeds`
 (plain `mv snapshots seeds` if `snapshots/` is untracked), and tell the
-user the seed-data directory was renamed (ADR 105) and the migration is
+user the seed-data directory was renamed and the migration is
 done.
 
-Then, **when `spec/architecture.yml` declares a top-level `ui:` block**
-(ADR 096), guard the UI build artifact the same way: resolve the dist
+Then, **when `spec/architecture.yml` declares a top-level `ui:` block**,
+guard the UI build artifact the same way: resolve the dist
 path from `ui.dist` (or the default `ui/dist` if `ui: {}` or `dist` is
 omitted), then check whether that path is ignored by **any** applicable
 `.gitignore` — the root `.gitignore` **and** every `.gitignore` on the
 path between the project root and the dist directory (e.g.
 `ui/.gitignore` — frontend scaffolds commonly ship a `dist` ignore line
-there). This is the same failure shape as the pre-ADR-094
-`seeds/`-ignored bug, caught here at authoring time instead of
+there). This is the same failure shape as the
+`seeds/`-ignored bug above, caught here at authoring time instead of
 discovered later as a silently UI-less deploy: an ignored dist means
 `git push` ships a repo whose committed backend has no frontend inside
 it, while `npm run build` and the local Vite dev server keep working
@@ -366,7 +368,7 @@ why: **an ignored dist silently strips the UI from every
 build-from-repo deploy while the local dev server keeps working.**
 
 Once the dist is confirmed tracked (or flagged), remind the user of the
-deploy ritual (ADR 096): `npm run build` (or the project's equivalent)
+deploy ritual: `npm run build` (or the project's equivalent)
 → commit the changed dist → `git push`. Also remind them that because
 the UI and the API now share one origin in the deployed app, client
 route names must not collide with generated endpoint paths —

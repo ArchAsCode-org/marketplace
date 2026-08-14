@@ -1,5 +1,5 @@
 #!/bin/sh
-# archascode — thin wrapper around the plugin's bundled CLI (ADR 072).
+# archascode — thin wrapper around the plugin's bundled CLI.
 #
 # Resolves the bundle relative to this script's REAL location so the same
 # wrapper works in all four contexts the plugin runs in:

@@ -28,7 +28,7 @@ what keeps the first pass honest about which is which.
 Validation is authoritative and side-effect-free: every mutating mode
 ends with `archascode validate`, which runs the full engine surface
 (jsonschema + Pydantic shape checks *and* planning-level checks like
-ADR-068 invariant resolution) against a throwaway directory the skill
+invariant resolution) against a throwaway directory the skill
 never names — strictly stronger than a schema lint, and nothing lands in
 the project tree but the spec (and, in PRD mode, the report). `validate`
 is a network call to the archascode cloud service, not a local lint —
@@ -129,12 +129,12 @@ anything this summary gets wrong.
   `one-to-many` | `many-to-one` | `many-to-many`. Let the engine
   synthesize FK attributes — a `many-to-one`/`one-to-one` relationship
   gets `{relationship_key}_id` automatically, nullability from
-  `relationship.required` (ADR 057); declare the FK attribute only to
+  `relationship.required`; declare the FK attribute only to
   override. `on_delete: cascade` for owned children, `restrict` for
   references — keeping **at most one cascading path into any entity**:
   SQL Server rejects a table reachable by two cascade routes from the
   same ancestor (error 1785; `set_null` counts as cascading too), and
-  the engine fails such a render on the sqlserver backend (ADR 089).
+  the engine fails such a render on the sqlserver backend.
   Postgres allows cascade diamonds, but keep the single-path shape
   anyway — it costs nothing and the spec stays portable. When
   a child has several cascading parents that are themselves linked by a
@@ -151,27 +151,27 @@ anything this summary gets wrong.
 - **Invariants**: `entity.invariants.<snake_name>: "<expr>"` — Python
   expressions over the entity's own attribute names (`quantity > 0`,
   `0 <= probability <= 100`). Comprehensions are supported;
-  unresolvable expressions fail the render loudly (ADR 068), so keep
+  unresolvable expressions fail the render loudly, so keep
   them simple and let the loop catch mistakes. Compare enum-typed
   fields by bare value equality — `status == 'won'` — enum members
-  compare equal to their value strings (ADR 077). Write "exactly one
+  compare equal to their value strings. Write "exactly one
   of" checks by counting non-nulls:
   `(a_id is not None) + (b_id is not None) == 1`.
 - **Methods**: `entity.methods.<verb>: {description, parameters?,
   returns?, use_case?}`. A parameter is a bare type string (required)
-  or `{type, required?, default?, description?}` for optional/defaulted
-  (ADR 061). `use_case: true` promotes the method to a generated use
-  case + endpoint (ADR 039). An aggregate-construction factory is
+  or `{type, required?, default?, description?}` for optional/defaulted.
+  `use_case: true` promotes the method to a generated use
+  case + endpoint. An aggregate-construction factory is
   `static: true`, never named `create`, paired with
-  `api.disabled: [create]` on the root (ADR 060). Method bodies are
+  `api.disabled: [create]` on the root. Method bodies are
   `entity_method` hand-offs — `/archascode:apply` fills them; the spec
   carries only signatures and intent.
 - **API posture**: app-wide `api: {auth: {type: jwt, scheme: bearer}}`
   when the PRD requires authentication (posture cascades to every
-  entity, ADR 033); per-entity override `entity.api.auth: required |
+  entity); per-entity override `entity.api.auth: required |
   anonymous`; per-op suppression `entity.api.disabled: [<op>, ...]`
   (bare CRUD op names + `rel-<relName>`; invalid names fail the render
-  with the induced set, ADR 059). Posture is the contract; *adapter*
+  with the induced set). Posture is the contract; *adapter*
   selection (jwt_bearer key config, claims mapping) is a deployment
   concern that stays out of the first pass — note it in the report.
 - **Custom use cases / ports** (when Step 3 justified one) — the
@@ -190,7 +190,7 @@ anything this summary gets wrong.
     write | read_write}]`. Entity repositories go in `uses.repositories`
     as bare entity names.
   - **A memory adapter that reads entity data must declare its stores**:
-    `ports.<PortName>.adapters.memory.reads: [<Entity>, ...]` (ADR 045).
+    `ports.<PortName>.adapters.memory.reads: [<Entity>, ...]`.
     The engine injects one `MemoryStore[<Entity>State]` per listed entity
     via a generated base class. **Omit `reads` and the adapter is seeded
     with an empty constructor and no stores — literally unimplementable**,
@@ -252,7 +252,7 @@ metadata:
 api:
   auth: { type: jwt, scheme: bearer }
   # Optional: re-root every generated route under a common prefix. Use it when
-  # the app also serves a same-origin UI (ADR 096) and you want a collision-free
+  # the app also serves a same-origin UI and you want a collision-free
   # API namespace. Grammar: the empty string (no prefix, the default) or a
   # leading-'/' path of one or more non-empty segments — no trailing slash, no
   # '.'/'..' segment, no '//' runs, no quotes/backslashes/braces. e.g. "/api/v1".
@@ -638,7 +638,7 @@ When the drafted spec and your intent disagree, the spec is what shipped:
 report it, or go fix the spec and re-validate.
 
 **A custom use case's route is its group prefix + its `http.path`, not
-the bare `path`.** Per ADR 041, `application.use_cases.<UC>.group` picks
+the bare `path`.** `application.use_cases.<UC>.group` picks
 the router: a declared entity name mounts the route under that entity's
 resource path, and an absent or `Application` group mounts it under the
 reserved `/application` prefix. So `group` unset with `http: {method:
@@ -771,5 +771,5 @@ only gates the load-bearing modeling forks in Step 2.
   spec and emit a diff proposal instead of a fresh draft.
 - **Multi-document input** — a PRD plus supplementary docs (API notes,
   data dictionary) as additional positional args.
-- **`archascode validate` verb** — this now exists (ADR 082) and is
+- **`archascode validate` verb** — this now exists and is
   what every mutating mode above runs.

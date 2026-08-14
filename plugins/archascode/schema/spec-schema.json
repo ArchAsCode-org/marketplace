@@ -90,7 +90,7 @@
         },
         "services": {
           "type": "object",
-          "description": "Domain services: stateless domain-layer free functions with no I/O, no persistence, and no backend axis. ADR 046.",
+          "description": "Domain services: stateless domain-layer free functions with no I/O, no persistence, and no backend axis.",
           "additionalProperties": false,
           "patternProperties": {
             "^[A-Z][a-zA-Z0-9]*$": {
@@ -154,7 +154,7 @@
           "enum": ["url", "header", "none"]
         },
         "base_path": {
-          "description": "Base path prefixed to every generated API route (e.g. '/api/v1'). Either the empty string (no prefix) or a leading-'/' path of one or more non-empty segments, none of which is '.' or '..' (interior included) and none of which carries a quote, backslash, brace, or control character (ADR 098 D1). Checked textually, pre-normalization, and stored verbatim.",
+          "description": "Base path prefixed to every generated API route (e.g. '/api/v1'). Either the empty string (no prefix) or a leading-'/' path of one or more non-empty segments, none of which is '.' or '..' (interior included) and none of which carries a quote, backslash, brace, or control character. Checked textually, pre-normalization, and stored verbatim.",
           "anyOf": [
             { "const": "" },
             {
@@ -167,12 +167,12 @@
     },
     "adapters": {
       "type": "object",
-      "description": "Engine-known adapter configuration. Carries persistence config and app-level adapter selections (ADR 024: auth).",
+      "description": "Engine-known adapter configuration. Carries persistence config and app-level adapter selections (auth).",
       "additionalProperties": false,
       "properties": {
         "persistence": {
           "type": "object",
-          "description": "Persistence backends, keyed by adapter id (ADR 085 D1). 'sqlserver' and 'postgres' keep their full config schema (ADR 092 D8); other backends are accepted as opaque objects — the parse layer describes the language, the render layer enforces what this build supports. Backend exclusivity (ADR 092 D1): a project declares at most one of 'sqlserver'/'postgres'.",
+          "description": "Persistence backends, keyed by adapter id. 'sqlserver' and 'postgres' keep their full config schema; other backends are accepted as opaque objects — the parse layer describes the language, the render layer enforces what this build supports. Backend exclusivity: a project declares at most one of 'sqlserver'/'postgres'.",
           "properties": {
             "sqlserver": {
               "$ref": "#/definitions/SqlServerConfig"
@@ -192,7 +192,7 @@
         },
         "auth": {
           "type": "object",
-          "description": "App-level auth adapter selection (ADR 024). Declares the spec-level default; per-binding 'app_adapters' overrides per environment. 'api_key' and 'oauth2' are reserved — accepted at parse time, rejected at render time.",
+          "description": "App-level auth adapter selection. Declares the spec-level default; per-binding 'app_adapters' overrides per environment. 'oauth2' is reserved — accepted at parse time, rejected at render time.",
           "additionalProperties": false,
           "properties": {
             "id": {
@@ -206,14 +206,14 @@
     },
     "port_bindings": {
       "type": "object",
-      "description": "Optional named port bindings (ADR 010, renamed by ADR 026; formerly 'bindings'/'profiles'). Each port binding maps every entity's repo slot to one of its declared adapters at boot via APP_PORT_BINDING. Reserved names: 'memory', plus one auto-emitted name per declared, registered persistence backend (e.g. 'sqlserver', 'postgres' — ADR 092).",
+      "description": "Optional named port bindings (formerly 'bindings'/'profiles'). Each port binding maps every entity's repo slot to one of its declared adapters at boot via APP_PORT_BINDING. Reserved names: 'memory', plus one auto-emitted name per declared, registered persistence backend (e.g. 'sqlserver', 'postgres').",
       "additionalProperties": {
         "$ref": "#/definitions/PortBinding"
       }
     },
     "environments": {
       "type": "object",
-      "description": "Named deployment-target environments (ADR 010, ADR 017). Each environment selects one port binding and declares two axes: compute (docker/external) and data (ephemeral/protected).",
+      "description": "Named deployment-target environments. Each environment selects one port binding and declares two axes: compute (docker/external) and data (ephemeral/protected).",
       "additionalProperties": {
         "$ref": "#/definitions/Environment"
       }
@@ -224,7 +224,7 @@
     },
     "ui": {
       "type": "object",
-      "description": "Optional spec-declared UI serving (ADR 096). Presence enables mounting a built single-page-app dist at '/' in the rendered app, after every API route registration. Absence is the identity case — no mount is emitted.",
+      "description": "Optional spec-declared UI serving. Presence enables mounting a built single-page-app dist at '/' in the rendered app, after every API route registration. Absence is the identity case — no mount is emitted.",
       "additionalProperties": false,
       "properties": {
         "dist": {
@@ -240,7 +240,7 @@
   "definitions": {
     "DomainService": {
       "type": "object",
-      "description": "A domain service: a named module of stateless free functions with no I/O, no persistence, and no backend axis. ADR 046 Decision #1.",
+      "description": "A domain service: a named module of stateless free functions with no I/O, no persistence, and no backend axis.",
       "additionalProperties": false,
       "properties": {
         "description": {
@@ -248,7 +248,7 @@
         },
         "locked": {
           "type": "boolean",
-          "description": "When true, this body's overlay seeds to spec/locked/ (the non-regenerable layer preserved by `clean`) instead of spec/src/, and documents the intent that it is hand-owned. Core auto-moves the body between spec/src/ and spec/locked/ at render to honor the flag (ADR 063). Lock first, then edit the body in spec/locked/ so your edits are preserved. Defaults to false (ADR 062)."
+          "description": "When true, this body's overlay seeds to spec/locked/ (the non-regenerable layer preserved by `clean`) instead of spec/src/, and documents the intent that it is hand-owned. Core auto-moves the body between spec/src/ and spec/locked/ at render to honor the flag. Lock first, then edit the body in spec/locked/ so your edits are preserved. Defaults to false."
         },
         "functions": {
           "type": "object",
@@ -261,7 +261,7 @@
         },
         "value_objects": {
           "type": "object",
-          "description": "Service-scoped DTOs (domain-layer value objects). These are domain artifacts, NOT port-scoped. ADR 046 Decision #4.",
+          "description": "Service-scoped DTOs (domain-layer value objects). These are domain artifacts, NOT port-scoped.",
           "patternProperties": {
             "^[A-Z][a-zA-Z0-9]*$": {
               "$ref": "#/definitions/ValueObject"
@@ -271,13 +271,13 @@
         "depends_on": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Sibling domain services this service calls directly. Must name only other domain.services entries — NOT use cases, ports, or repositories (ADR 046 Decision #6, the layering invariant)."
+          "description": "Sibling domain services this service calls directly. Must name only other domain.services entries — NOT use cases, ports, or repositories (the layering invariant)."
         }
       }
     },
     "DomainServiceFunction": {
       "type": "object",
-      "description": "One function declared on a domain service. Shape mirrors ApplicationPortMethod. ADR 046 Decision #1.",
+      "description": "One function declared on a domain service. Shape mirrors ApplicationPortMethod.",
       "additionalProperties": false,
       "properties": {
         "description": {
@@ -351,7 +351,7 @@
         },
         "derived_attributes": {
           "$ref": "#/definitions/DerivedAttributeMap",
-          "description": "ADR 074 — computed read-only projections: a pure ADR 068-dialect expression over the entity's own stored attributes or sibling derived attributes (same-entity, acyclic — ADR 074 A1), rendered as a @property on <E>State and surfaced in <E>DTO only (never in inputs, SQL, or snapshots)."
+          "description": "Computed read-only projections: a pure expression in the same restricted Python dialect as invariants over the entity's own stored attributes or sibling derived attributes (same-entity, acyclic), rendered as a @property on <E>State and surfaced in <E>DTO only (never in inputs, SQL, or snapshots)."
         },
         "adapters": {
           "$ref": "#/definitions/AdapterMap",
@@ -363,14 +363,14 @@
         },
         "api": {
           "$ref": "#/definitions/EntityAPIConfig",
-          "description": "ADR 033 — optional API sub-block. Level 2 ships auth; the sub-block hosts per-op keys (level 3) and future API-only knobs."
+          "description": "Optional API sub-block. Level 2 ships auth; the sub-block hosts per-op keys (level 3) and future API-only knobs."
         }
       }
     },
     "EntityAPIConfig": {
       "type": "object",
       "additionalProperties": false,
-      "description": "ADR 033 #4 — entity.api sub-block. Sets the auth posture for every endpoint the entity induces.",
+      "description": "entity.api sub-block. Sets the auth posture for every endpoint the entity induces.",
       "properties": {
         "auth": {
           "type": "string",
@@ -380,7 +380,7 @@
         "disabled": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "ADR 059 — sparse opt-out list of route op keys to suppress (CRUD bare names + rel-<relName>). API-layer-only: the use case/port/adapter still generate. Validated against the induced set."
+          "description": "Sparse opt-out list of route op keys to suppress (CRUD bare names + rel-<relName>). API-layer-only: the use case/port/adapter still generate. Validated against the induced set."
         }
       }
     },
@@ -456,11 +456,11 @@
       "properties": {
         "type": {
           "type": "string",
-          "description": "Scalar type (primitive, enum, or value object). list[X] is rejected (ADR 074 D1)."
+          "description": "Scalar type (primitive, enum, or value object). list[X] is rejected."
         },
         "expression": {
           "type": "string",
-          "description": "ADR 068-dialect Python expression over the entity's own stored attributes or sibling derived attributes (same-entity, acyclic — ADR 074 A1)."
+          "description": "A pure expression in the restricted Python dialect used by invariants, over the entity's own stored attributes or sibling derived attributes (same-entity, acyclic)."
         },
         "description": {
           "type": "string"
@@ -620,7 +620,7 @@
         "mutable": {
           "type": "boolean",
           "default": false,
-          "description": "ADR 039 — opt-in mutation. Omitted or false ⇒ non-mutable (query) method: declared params only, returns the declared `returns` (or None). true ⇒ the method gains an injected `*, now: datetime` clock param and returns its entity (a declared `returns` is ignored)."
+          "description": "Opt-in mutation. Omitted or false ⇒ non-mutable (query) method: declared params only, returns the declared `returns` (or None). true ⇒ the method gains an injected `*, now: datetime` clock param and returns its entity (a declared `returns` is ignored)."
         },
         "parameters": {
           "type": "object",
@@ -643,7 +643,7 @@
         },
         "depends_on_attributes": {
           "type": "array",
-          "description": "Entity attribute names whose rendered types are included in the hand-off contract hash (ADR 039 #8).",
+          "description": "Entity attribute names whose rendered types are included in the hand-off contract hash.",
           "items": { "type": "string" }
         },
         "use_case": {
@@ -656,16 +656,16 @@
         "static": {
           "type": "boolean",
           "default": false,
-          "description": "ADR 060 — a static factory method (classmethod) that constructs the entity's aggregate (root + owned children). Pure: composes owned entities' create(); returns a flat persist-ordered bundle. Mutually exclusive with mutable."
+          "description": "A static factory method (classmethod) that constructs the entity's aggregate (root + owned children). Pure: composes owned entities' create(); returns a flat persist-ordered bundle. Mutually exclusive with mutable."
         },
         "aggregate": {
           "type": "boolean",
           "default": false,
-          "description": "ADR 073 — an aggregate instance method on the root: operates over the loaded owned children (ADR 060 owned set) and returns the flat changed bundle; the promoted UC is the generated multi-repo load/mutate/persist orchestration. Mutually exclusive with static and with explicit mutable: true."
+          "description": "An aggregate instance method on the root: operates over the loaded owned children (the static-factory owned set) and returns the flat changed bundle; the promoted UC is the generated multi-repo load/mutate/persist orchestration. Mutually exclusive with static and with explicit mutable: true."
         },
         "locked": {
           "type": "boolean",
-          "description": "When true, this body's overlay seeds to spec/locked/ (the non-regenerable layer preserved by `clean`) instead of spec/src/, and documents the intent that it is hand-owned. Core auto-moves the body between spec/src/ and spec/locked/ at render to honor the flag (ADR 063). Lock first, then edit the body in spec/locked/ so your edits are preserved. Defaults to false (ADR 062)."
+          "description": "When true, this body's overlay seeds to spec/locked/ (the non-regenerable layer preserved by `clean`) instead of spec/src/, and documents the intent that it is hand-owned. Core auto-moves the body between spec/src/ and spec/locked/ at render to honor the flag. Lock first, then edit the body in spec/locked/ so your edits are preserved. Defaults to false."
         }
       }
     },
@@ -839,7 +839,7 @@
         },
         "uses": {
           "$ref": "#/definitions/UseCaseUses",
-          "description": "Per ADR 004: dependency declarations — uses.repositories (entity names) + uses.ports (PortDependency list). Replaces the legacy top-level ports field."
+          "description": "Dependency declarations — uses.repositories (entity names) + uses.ports (PortDependency list). Replaces the legacy top-level ports field."
         },
         "workflow": {
           "type": "array",
@@ -877,15 +877,15 @@
         },
         "endpoint": {
           "type": "boolean",
-          "description": "ADR 041 #1 — expose as HTTP endpoint (default true); false suppresses the route."
+          "description": "Expose as HTTP endpoint (default true); false suppresses the route."
         },
         "group": {
           "type": "string",
-          "description": "ADR 041 #2 — mounting group: absent = 'Application' synthetic router; named = that entity's router."
+          "description": "Mounting group: absent = 'Application' synthetic router; named = that entity's router."
         },
         "http": {
           "type": "object",
-          "description": "ADR 041 #3 — explicit verb + path suffix. Absent = POST /<uc-kebab>.",
+          "description": "Explicit verb + path suffix. Absent = POST /<uc-kebab>.",
           "additionalProperties": false,
           "required": ["method", "path"],
           "properties": {
@@ -902,7 +902,7 @@
         },
         "locked": {
           "type": "boolean",
-          "description": "When true, this body's overlay seeds to spec/locked/ (the non-regenerable layer preserved by `clean`) instead of spec/src/, and documents the intent that it is hand-owned. Core auto-moves the body between spec/src/ and spec/locked/ at render to honor the flag (ADR 063). Lock first, then edit the body in spec/locked/ so your edits are preserved. Defaults to false (ADR 062)."
+          "description": "When true, this body's overlay seeds to spec/locked/ (the non-regenerable layer preserved by `clean`) instead of spec/src/, and documents the intent that it is hand-owned. Core auto-moves the body between spec/src/ and spec/locked/ at render to honor the flag. Lock first, then edit the body in spec/locked/ so your edits are preserved. Defaults to false."
         }
       }
     },
@@ -992,15 +992,15 @@
         "reads": {
           "type": "array",
           "items": {"type": "string"},
-          "description": "Entity stores a memory custom-port adapter receives as MemoryStore[<Entity>State] constructor arguments, in declared order (ADR 045 Decision #1). Meaningful only on a port's memory adapter; planning hard-fails if present elsewhere."
+          "description": "Entity stores a memory custom-port adapter receives as MemoryStore[<Entity>State] constructor arguments, in declared order. Meaningful only on a port's memory adapter; planning hard-fails if present elsewhere."
         },
         "eject": {
           "type": "boolean",
-          "description": "When true, this adapter's repository body is handed off to the agent as a contracted spec/src/ overlay (entity_adapter hand-off). Ejects exactly this adapter; siblings stay engine-generated. Defaults to false (ADR 051)."
+          "description": "When true, this adapter's repository body is handed off to the agent as a contracted spec/src/ overlay (entity_adapter hand-off). Ejects exactly this adapter; siblings stay engine-generated. Defaults to false."
         },
         "locked": {
           "type": "boolean",
-          "description": "When true, this body's overlay seeds to spec/locked/ (the non-regenerable layer preserved by `clean`) instead of spec/src/, and documents the intent that it is hand-owned. Core auto-moves the body between spec/src/ and spec/locked/ at render to honor the flag (ADR 063). Lock first, then edit the body in spec/locked/ so your edits are preserved. Defaults to false (ADR 062)."
+          "description": "When true, this body's overlay seeds to spec/locked/ (the non-regenerable layer preserved by `clean`) instead of spec/src/, and documents the intent that it is hand-owned. Core auto-moves the body between spec/src/ and spec/locked/ at render to honor the flag. Lock first, then edit the body in spec/locked/ so your edits are preserved. Defaults to false."
         }
       }
     },
@@ -1023,7 +1023,7 @@
     },
     "SqlServerConfig": {
       "type": "object",
-      "description": "SQL Server persistence adapter configuration. env required keys: host, database, username, password (port optional). Schema-management policy is derived from the environment-level data axis (see environments.<env>.data; ADR 017).",
+      "description": "SQL Server persistence adapter configuration. env required keys: host, database, username, password (port optional). Schema-management policy is derived from the environment-level data axis (see environments.<env>.data).",
       "additionalProperties": false,
       "required": ["env"],
       "properties": {
@@ -1042,7 +1042,7 @@
     },
     "PostgresConfig": {
       "type": "object",
-      "description": "Postgres persistence adapter configuration (ADR 097 D1). env carries exactly one key: url — a single DATABASE_URL-shaped connection string, the convention every mainstream Postgres platform injects and psycopg consumes natively. This replaces ADR 092's four discrete keys (host, database, username, password) with no deprecation window. Schema-management policy is derived from the environment-level data axis (see environments.<env>.data; ADR 017).",
+      "description": "Postgres persistence adapter configuration. env carries exactly one key: url — a single DATABASE_URL-shaped connection string, the convention every mainstream Postgres platform injects and psycopg consumes natively. Schema-management policy is derived from the environment-level data axis (see environments.<env>.data).",
       "additionalProperties": false,
       "required": ["env"],
       "properties": {
@@ -1089,7 +1089,7 @@
     },
     "UseCaseUses": {
       "type": "object",
-      "description": "Per ADR 004: dependency declarations for a custom use case — repositories (by entity name) and ports (PortDependency list).",
+      "description": "Dependency declarations for a custom use case — repositories (by entity name) and ports (PortDependency list).",
       "additionalProperties": false,
       "properties": {
         "repositories": {
@@ -1106,7 +1106,7 @@
     },
     "PortBinding": {
       "type": "object",
-      "description": "Named port binding (ADR 010, renamed by ADR 026; formerly 'Binding'/'profile'). `default` is the adapter every entity binds to unless overridden; `overrides` pins specific entities to a different declared adapter. `app_adapters` (ADR 024) selects app-level adapters per port binding.",
+      "description": "Named port binding (formerly 'Binding'/'profile'). `default` is the adapter every entity binds to unless overridden; `overrides` pins specific entities to a different declared adapter. `app_adapters` selects app-level adapters per port binding.",
       "additionalProperties": false,
       "required": ["default"],
       "properties": {
@@ -1121,7 +1121,7 @@
         },
         "app_adapters": {
           "type": "object",
-          "description": "Per-port-binding app-level adapter selections (ADR 024). v1 carries 'auth'. When unset, top-level 'adapters.auth.id' is used; if neither is set, 'noop' is the implicit default.",
+          "description": "Per-port-binding app-level adapter selections. v1 carries 'auth'. When unset, top-level 'adapters.auth.id' is used; if neither is set, 'noop' is the implicit default.",
           "additionalProperties": false,
           "properties": {
             "auth": {
@@ -1135,7 +1135,7 @@
     },
     "Environment": {
       "type": "object",
-      "description": "Named deployment-target environment (ADR 010, ADR 017). References a port binding and declares two axes: compute (who owns the database lifecycle) and data (how protected the data is).",
+      "description": "Named deployment-target environment. References a port binding and declares two axes: compute (who owns the database lifecycle) and data (how protected the data is).",
       "additionalProperties": false,
       "required": ["port_binding"],
       "properties": {

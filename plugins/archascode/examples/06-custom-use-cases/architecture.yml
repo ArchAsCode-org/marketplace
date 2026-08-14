@@ -273,7 +273,7 @@ application:
       description: >
         Anonymous health endpoint — confirms the application is wired and
         the auth adapter can produce CurrentUser.anonymous() at the call
-        site. Exercises the ADR 024 anonymous-route rendering path.
+        site. Exercises the anonymous-route rendering path.
         Default-group (no group key) custom UC: routes to Application group.
       auth: anonymous
       input: void
@@ -324,7 +324,7 @@ application:
     InternalRecompute:
       description: >
         Internal recomputation — not exposed as an HTTP endpoint.
-        Exercises the endpoint: false opt-out (ADR 041 #1). This UC still
+        Exercises the endpoint: false opt-out. This UC still
         renders its application package and composition factory but produces
         no route, no projection entry, and no rail row.
       auth: required

@@ -5,19 +5,18 @@ description: Cut the in-flight schema migration in an archascode consuming proje
 
 # /archascode:cut-schema-migration
 
-Thin wrapper over the `archascode cut-schema-migration` CLI (ADR 019,
-ADR 020, ADR 088). The CLI does all the real work — it computes each
-backend's pending schema delta via the archascode cloud (`POST
-/schema-delta`) and seals the result under
+Thin wrapper over the `archascode cut-schema-migration` CLI. The CLI does
+all the real work — it computes each backend's pending schema delta via
+the archascode cloud (`POST /schema-delta`) and seals the result under
 `spec/locked/adapter/persistence/<backend>/schema/migrations/` with a
 timestamp + slug (one chain per backend, sharing one name per
-invocation, ADR 087). This skill exists so the user can invoke that
+invocation). This skill exists so the user can invoke that
 flow from a Claude session without switching to a terminal.
 
 ## Network dependency
 
 This is a network verb: it requires a resolved cloud target and a
-logged-in session (ADR 071/088). On exit 1 with an auth-related error in
+logged-in session. On exit 1 with an auth-related error in
 the message, point the user at `/archascode:login` — mirror the
 render-path skills' 401 hint. On exit 2, the CLI has already determined
 there is no cloud target (not logged in); surface its message verbatim

@@ -9,8 +9,8 @@ Close the **render → implement → re-render** loop for an archascode consumin
 project. On invocation:
 
 1. Render the spec (calls the cloud `/render` endpoint via the local CLI).
-2. Seed `.env` from `.env.example` once-ever, if not already present
-   (ADR 070 Amendment A2) — silent unless it acts.
+2. Seed `.env` from `.env.example` once-ever, if not already present —
+   silent unless it acts.
 3. Inspect the pending hand-offs returned by the cloud.
 4. For each pending hand-off, spawn a sub-agent to fill in the impl stub
    in `spec/src/...`, then record the resolution.
@@ -68,10 +68,10 @@ On `ok: false`, print the errors and exit. Do not proceed.
 Exit **2** with no JSON on stdout means not logged in, not a render
 failure. Report `not logged in — run archascode login` and stop.
 
-### Step 1a — seed `.env` from `.env.example`, once-ever (ADR 070 Amendment A2)
+### Step 1a — seed `.env` from `.env.example`, once-ever
 
-Every render unconditionally writes `.env.example` at the project root
-(ADR 070 Decision 1) — true after Step 1 above, on every invocation. If a
+Every render unconditionally writes `.env.example` at the project root —
+true after Step 1 above, on every invocation. If a
 live `.env` does not exist yet, copy it once-ever, tracked by the same
 marker `/archascode:init` used before this responsibility moved here:
 
@@ -132,26 +132,26 @@ For each item in `handoff.pending`:
      - `sqlserver` → see "Brief: entity_adapter (sqlserver)" below.
      - `postgres` → see "Brief: entity_adapter (postgres)" below.
 
-   - `entity_method` — the domain-method body hand-off (ADR 039). One
+   - `entity_method` — the domain-method body hand-off. One
      hand-off per declared entity method, promoted or not. The `item.id`
      format is `entity_method:<Entity>:<method_snake>`. Route to:
      - see "Brief: entity_method" below.
 
-   - `custom_port_adapter` — the per-backend custom-port adapter hand-off
-     (ADR 042). `item.id` format is `custom_port_adapter:<Port>:<backend>`
+   - `custom_port_adapter` — the per-backend custom-port adapter hand-off.
+     `item.id` format is `custom_port_adapter:<Port>:<backend>`
      — parse `<Port>` and `<backend>`. Route to "Brief: custom_port_adapter"
      below.
 
-   - `custom_uc_workflow` — the custom use-case workflow body hand-off (ADR
-     043). `item.id` format is `custom_uc_workflow:<UCName>` — parse
+   - `custom_uc_workflow` — the custom use-case workflow body hand-off.
+     `item.id` format is `custom_uc_workflow:<UCName>` — parse
      `<UCName>`. Route to "Brief: custom_uc_workflow" below.
 
-   - `domain_service_body` — the domain service body hand-off (ADR 046).
+   - `domain_service_body` — the domain service body hand-off.
      `item.id` format is `domain_service_body:<ServiceName>` — parse
      `<ServiceName>`. Route to "Brief: domain_service_body" below.
 
    - `auth_claims_mapper` — the jwt_bearer claims-to-CurrentUser mapper
-     hand-off (ADR 024 amended). `item.id` is the fixed
+     hand-off. `item.id` is the fixed
      `auth_claims_mapper:jwt_bearer` (one per app, no second axis). Route
      to "Brief: claims_mapper" below — but **gate dispatch on the Step 3a
      `DISPATCH/SKIP` check**: only dispatch the customization brief when
@@ -180,7 +180,7 @@ For each item in `handoff.pending`:
      was written in a prior run), yet the item is back in `pending`. The
      only thing that re-opens a marker-free overlay is a `contract_hash`
      change, i.e. the spec moved the contract after the body was written
-     (a method param added/renamed/removed or retyped — ADR 060/061 — a
+     (a method param added/renamed/removed or retyped — a
      port Protocol or input DTO reshaped). The overlay's own `def` line is
      now **stale**: it reflects the signature at seed time, not the
      current contract. Build the brief with the **re-open addendum** from
@@ -217,7 +217,7 @@ For each item in `handoff.pending`:
 
    - **For `kind == custom_port_adapter`:** this is a legitimate partial
      fill — the file mtime changed, at least one method was implemented,
-     but at least one stub marker survives (ADR 042 #3 — any method still
+     but at least one stub marker survives (any method still
      carrying `# archascode: custom-port adapter method stub — remove this
      line when you implement` keeps the hand-off pending). Re-dispatch the
      same hand-off item so the agent fills the remaining methods. A
@@ -226,7 +226,7 @@ For each item in `handoff.pending`:
 
    - **For `kind == domain_service_body`:** this is a legitimate partial
      fill — the file mtime changed, at least one function was implemented,
-     but at least one stub marker survives (ADR 046 Decision #3 — any
+     but at least one stub marker survives (any
      function still carrying
      `# archascode: domain-service function body stub — remove this line when you implement`
      keeps the hand-off pending). Re-dispatch the same hand-off item so
@@ -239,22 +239,30 @@ For each item in `handoff.pending`:
      changed but the hash didn't match). Surface the situation rather than
      re-spawning.
 
-### Step 3a — claims-mapper hand-off (ADR 024)
+### Step 3a — claims-mapper hand-off
 
 After processing the cloud-returned hand-offs but before printing the
-summary, check whether the **active environment's** auth adapter is
-`jwt_bearer`. The auth adapter is project-specific scaffolding that
-lives in `spec/src/`, not a normal hand-off item — the seed is written
-once on render and the engine never overwrites it, so the apply skill
-takes responsibility for deciding when to invite an agent to customize
-it.
+summary, check whether **any declared environment's** auth adapter is
+`jwt_bearer`. The mapper is app-wide — one seed, one hand-off id, no
+per-environment axis — so the gate reads **every** environment's
+resolved adapter, never only `defaultEnvironment`: the standard
+fail-closed shape is a verifying spec default with the
+default environment noop-opted-out, so on most jwt projects the
+verifying environment is a **non-default** one. The auth adapter is
+project-specific scaffolding that lives in `spec/src/`, not a normal
+hand-off item — the seed is written once on render and the engine
+never overwrites it, so the apply skill takes responsibility for
+deciding when to invite an agent to customize it.
 
 Trigger conditions (all three must hold):
 
-1. The active environment's auth adapter is `jwt_bearer`. The active
-   environment is `.archascode/environments.json`'s `defaultEnvironment`
-   (camelCase) unless the user passed `--env`; its adapter is
-   `environments[<env>].appAdapters.auth.id`.
+1. At least one declared environment resolves auth adapter
+   `jwt_bearer` — the union over
+   `.archascode/environments.json`'s
+   `environments[*].appAdapters.auth.id`. A `--env` scope on the apply
+   run leaves this gate untouched: the mapper serves every verifying
+   environment, so scoping the run narrows the hand-off work, never
+   this check.
 2. `spec/src/adapter/auth/jwt_bearer/claims_mapper.py` exists on disk
    (the seed was written on a previous render).
 3. The file still contains the seed marker comment
@@ -262,25 +270,22 @@ Trigger conditions (all three must hold):
 
 Evaluate all three with one command — do not hand-write ad-hoc
 `environments.json` readers (`environments.json` is **camelCase**
-throughout: `defaultEnvironment`, `appAdapters`, not snake_case).
-Substitute `ENV` only if the user passed `--env`; otherwise leave it
-empty to use `defaultEnvironment`:
+throughout: `defaultEnvironment`, `appAdapters`, not snake_case):
 
 ```bash
-python3 - "$PWD" "${ENV:-}" <<'PY'
+python3 - "$PWD" <<'PY'
 import json, os, sys
-root, env_override = sys.argv[1], sys.argv[2]
+root = sys.argv[1]
 m = json.load(open(os.path.join(root, ".archascode", "environments.json")))
-env = env_override or m.get("defaultEnvironment")
-auth = (((m.get("environments") or {}).get(env) or {})
-        .get("appAdapters") or {}).get("auth") or {}
+ids = {(((e or {}).get("appAdapters") or {}).get("auth") or {}).get("id")
+       for e in (m.get("environments") or {}).values()}
 mapper = os.path.join(root, "spec", "src", "adapter", "auth",
                       "jwt_bearer", "claims_mapper.py")
 seeded = (os.path.exists(mapper)
           and "# archascode: seeded by jwt_bearer adapter renderer"
               in open(mapper).read())
-fire = auth.get("id") == "jwt_bearer" and seeded
-print(f"env={env} auth.id={auth.get('id')} seeded={seeded} -> "
+fire = "jwt_bearer" in ids and seeded
+print(f"auth ids={sorted(i for i in ids if i)} seeded={seeded} -> "
       f"{'DISPATCH' if fire else 'SKIP'}")
 PY
 ```
@@ -293,7 +298,7 @@ Verify the agent edited the file using the same mtime check as other
 hand-offs.
 
 The claims mapper **is** a contract-tracked hand-off (`kind ==
-auth_claims_mapper`, id `auth_claims_mapper:jwt_bearer`, ADR 024 amended)
+auth_claims_mapper`, id `auth_claims_mapper:jwt_bearer`)
 — it appears in the cloud-returned `pending` list like any other. Record
 its resolution and re-render exactly as in Step 3.4–3.5, using the
 `contract_hash` from its pending hand-off item:
@@ -376,7 +381,7 @@ against the OLD contract, so its `def` line may be stale. Reconcile BOTH:
 
 1. Make the overlay's `def` line match the generated signature exactly —
    parameter names, order, keyword-only markers, and optional/default
-   markers (ADR 061: an optional or defaulted param renders `param=<default>`
+   markers (an optional or defaulted param renders `param=<default>`
    or `param: <type> | None = None`). Names + arity drift causes a call-time
    TypeError; this is the case that fails loudly.
 2. Re-verify the body against the current parameter TYPES. A type-only change
@@ -508,13 +513,13 @@ Constraints:
 For a pending `entity_adapter` item whose `id` ends in `:postgres`,
 use the sqlserver brief above with the postgres substitutions — the
 seeded overlay has the same dual-tree shape and the same CRUD/hydration
-skeleton (ADR 092's repository is written from the SQL Server one):
+skeleton (the Postgres repository is written from the SQL Server one):
 
 - Opening line: `You are implementing a Postgres repository extension
   method for archascode.`
 - Class: `Postgres<Entity>Repository`; `get_connection()` yields a
   `psycopg.Connection`.
-- Placeholders are the same `%s` DBAPI paramstyle (ADR 092 C5).
+- Placeholders are the same `%s` DBAPI paramstyle.
 - Pass UUID values as `str(value)` in parameter tuples. Decimal values
   pass through natively — psycopg adapts `Decimal` to `NUMERIC`
   directly, so the pymssql `float(...)` accommodation line is dropped.
@@ -527,9 +532,9 @@ skeleton (ADR 092's repository is written from the SQL Server one):
 Everything else (spec-description intent lookup, re-open addendum,
 constraints block) is identical to the sqlserver brief.
 
-## Brief: claims_mapper (ADR 024)
+## Brief: claims_mapper
 
-For the ADR 024 jwt_bearer claims-mapper hand-off, dispatch a sub-agent
+For the jwt_bearer claims-mapper hand-off, dispatch a sub-agent
 with a prompt along these lines. The brief targets the seeded overlay
 at `<cwd>/spec/src/adapter/auth/jwt_bearer/claims_mapper.py` —
 project-specific scaffolding that lives only in the overlay tree (no
@@ -579,8 +584,8 @@ along these lines (substitute concrete values). The `item.id` format is
 `entity_method:<Entity>:<method_snake>` — parse `<Entity>` and
 `<method_snake>` from it. The brief targets the seeded overlay at
 `<cwd>/<impl_target_file>`. **On a re-open** (Step 3 detected the stub
-marker is gone — the spec moved the method's parameters, e.g. an
-ADR 060/061 param add/rename/retype/default change), drop the "signature
+marker is gone — the spec moved the method's parameters, e.g. a
+param add/rename/retype/default change), drop the "signature
 is already correct" sentence and append the "Shared: re-opened hand-offs"
 addendum, pointing at the delegating shim's `def` line in
 `src/domain/entities/<entity_snake>.py`. This is the exact scenario where
@@ -620,7 +625,7 @@ Implementation rules:
 - Remove the stub-marker comment line (``# archascode: entity-method body
   stub — remove this line when you implement``) as part of implementing the
   body. ``/archascode:apply`` treats an overlay still carrying that line as
-  unresolved and will re-dispatch this hand-off (ADR 040), so leaving it in
+  unresolved and will re-dispatch this hand-off, so leaving it in
   loops the loop.
 - Do not import the entity type at module top — only use it via the
   ``self`` parameter (the shim already handles the import).
@@ -629,7 +634,7 @@ Implementation rules:
   ``depends_on_attributes`` in ``spec/architecture.yml`` and ask the user
   to re-render before proceeding — do not guess or silently reference
   undeclared attributes. Declared dependencies are what the engine uses
-  to detect when the hand-off needs re-confirmation (ADR 039 #8).
+  to detect when the hand-off needs re-confirmation.
 - stdlib and project domain imports are fine; do not add third-party
   dependencies.
 - Do not change the function name, signature, or any other method in the
@@ -686,7 +691,7 @@ Implementation rules:
   (``# archascode: custom-port adapter method stub — remove this line when you implement``)
   from **each** method you implement. ``/archascode:apply`` treats an overlay where
   **any** method still carries that line as unresolved and will re-dispatch
-  this hand-off (ADR 042), so leaving the marker in loops the loop. A
+  this hand-off, so leaving the marker in loops the loop. A
   method you leave unimplemented (still raises ``NotImplementedError``) must
   keep its marker — the overlay stays pending until all methods are filled.
 - For a ``sqlserver`` backend, import the shared connection via
@@ -694,7 +699,7 @@ Implementation rules:
   (and any other helpers you need from that module). Mirror the import
   form already emitted at the top of this file — the engine writes
   cross-layer imports by bare top-level name. This import resolves
-  regardless of the adapter's directory location (Decision #2, ADR 042).
+  regardless of the adapter's directory location.
 - For a ``memory`` backend, the entity stores your adapter reads are
   injected by an engine-owned base class (``Memory<Port>AdapterBase`` in
   ``src/adapter/<port_snake>/memory/_base.py``) that your adapter
@@ -780,8 +785,8 @@ Implementation rules:
 - Remove the stub-marker comment line
   (``# archascode: custom use-case workflow body stub — remove this line when you implement``)
   when you implement the body. ``/archascode:apply`` treats an overlay still
-  carrying that line as unresolved and will re-dispatch this hand-off
-  (ADR 043), so leaving the marker in loops the loop.
+  carrying that line as unresolved and will re-dispatch this hand-off,
+  so leaving the marker in loops the loop.
 - Call each depended-on port through its port interface — use
   ``self._<port_snake>.<method>(...)`` as the constructor already wires
   the port instance. Do not instantiate adapters directly.
@@ -852,7 +857,7 @@ Implementation rules:
   (``# archascode: domain-service function body stub — remove this line when you implement``)
   from **each** function you implement. ``/archascode:apply`` treats an overlay
   where **any** function still carries that line as unresolved and will
-  re-dispatch this hand-off (ADR 046 Decision #3), so leaving the marker
+  re-dispatch this hand-off, so leaving the marker
   in loops the loop. A function you leave unimplemented (still raises
   ``NotImplementedError``) must keep its marker — the overlay stays
   pending until all function markers are removed.
@@ -883,8 +888,8 @@ Implementation rules:
   need injected dependencies a pure service does not have — they do not:
   - ``new_id``: **omit it.** The factory signature is
     ``create(input, *, now, new_id: UUID | None = None)`` — when you pass no
-    ``new_id`` the factory self-mints a fresh ``uuid4()`` internally
-    (ADR-046 amendment 2026-06-08). A pure domain service must **not** call
+    ``new_id`` the factory self-mints a fresh ``uuid4()`` internally.
+    A pure domain service must **not** call
     ``uuid4()`` itself or pass an id; just call ``create(input, now=...)``.
   - ``now``: the factory still requires it. **If the entity has no
     ``created_at``/``updated_at`` field, ``now`` is inert** (the ``create``
@@ -894,12 +899,12 @@ Implementation rules:
     *does* store a timestamp**, ``now`` is load-bearing and ``datetime.min`` is
     wrong — the service must then declare ``now: datetime`` in its own spec
     ``input`` and the caller forwards it (the "time is a declared parameter"
-    rule; ADR 046). **Never call ``datetime.now()`` / ``datetime.utcnow()`` in
+    rule). **Never call ``datetime.now()`` / ``datetime.utcnow()`` in
     a service body** — a domain service takes time as data, never ambient.
 - **Never import from ``application.*``** — no use cases, no application
   ports, no repository interfaces. A domain service lives in the domain
-  layer; importing the application layer is an architecture violation
-  (ADR 046 Decision #6). The layering contract test is the backstop if
+  layer; importing the application layer is an architecture violation.
+  The layering contract test is the backstop if
   this rule is broken.
 - Do not change any function name, signature, or other functions in the
   file.
@@ -911,7 +916,7 @@ Constraints:
 - Save the file when done.
 - Do not modify ``spec/architecture.yml`` or any file under ``src/``.
 - Do not touch composition, bundle, or binding files — a domain service
-  has no backend axis, no adapter, and no binding (ADR 046 Decision #2).
+  has no backend axis, no adapter, and no binding.
 ```
 
 The sub-agent's job is to fill in the function bodies. Because resolution
@@ -939,25 +944,25 @@ inspecting whatever the sub-agent did (or didn't) do.
 
 ## Notes for future hand-off kinds
 
-Implemented kinds (as of ADR 046):
+Implemented kinds:
 - `entity_adapter` — per-adapter hand-off for an ejected entity (with
   `memory`, `sqlserver`, and `postgres` adapter-id variants). A `readonly`
   entity with no `repo_port_extensions` is seeded complete (no
   `NotImplementedError`): record + re-render without dispatching — same
   shape as the claims-mapper SKIP path. See "Brief: entity_adapter
   (memory/sqlserver/postgres)" above.
-- `entity_method` — domain-method body hand-off (ADR 039). One hand-off
+- `entity_method` — domain-method body hand-off. One hand-off
   per declared entity method; the pending/resolved/record loop is reused
   as-is. See "Brief: entity_method" above.
-- `custom_port_adapter` — per-backend custom-port adapter hand-off (ADR
-  042). One hand-off per (port, backend) pair; uses per-method stub markers
+- `custom_port_adapter` — per-backend custom-port adapter hand-off.
+  One hand-off per (port, backend) pair; uses per-method stub markers
   so a partially-filled port legitimately stays pending across multiple
   passes. See "Brief: custom_port_adapter" above.
-- `custom_uc_workflow` — custom use-case workflow body hand-off (ADR 043).
+- `custom_uc_workflow` — custom use-case workflow body hand-off.
   One hand-off per custom UC; single body per file so a single pass
   suffices (no per-method aggregation). See "Brief: custom_uc_workflow"
   above.
-- `domain_service_body` — domain service module hand-off (ADR 046). One
+- `domain_service_body` — domain service module hand-off. One
   hand-off per service module; uses per-function stub markers so a
   partially-filled service legitimately stays pending across multiple
   passes (the `custom_port_adapter` shape, NOT the single-body

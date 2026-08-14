@@ -20,7 +20,7 @@ has two targets — `persistence` and `auth`:
 ```
 
 The skill edits `spec/architecture.yml` only — additively, via the same
-uv-provisioned `ruamel.yaml` round-trip `/archascode:init` uses (ADR 070 A1),
+uv-provisioned `ruamel.yaml` round-trip `/archascode:init` uses,
 so comments and formatting survive. It validates the edit with a
 scratch render, pre-seeds the engine-authored `.env.<env>.example`
 template for each environment it creates, and prints a posture-aware
@@ -81,13 +81,13 @@ Read `spec/architecture.yml` and print, in order:
 1. **Persistence** — `memory (by omission)` when neither
    `adapters.persistence.postgres` nor `adapters.persistence.sqlserver`
    is present; otherwise the declared backend name (`postgres` or
-   `sqlserver` — ADR 092 exclusivity means at most one), with entity
+   `sqlserver` — backend exclusivity means at most one), with entity
    coverage: `N of M entities carry adapters.<backend>`, naming the
    exceptions (they resolve to memory inside the auto backend binding —
    deliberate mixed storage, or an oversight).
 2. **Environments** — a table of `name / port_binding / compute /
-   data`, marking `default_environment`. A spec with none (pre-ADR-070
-   floor) gets: `no environments declared — /archascode:init will scaffold dev (memory)`.
+   data`, marking `default_environment`. A spec with none (before the
+   zero-config scaffold) gets: `no environments declared — /archascode:init will scaffold dev (memory)`.
 3. **Auth** — the mode, derived from `api.auth.type`: `none` |
    `api_key` | `jwt`. `type` absent means `none` **even when**
    `adapters.auth` is declared — a verifying adapter under anonymous
@@ -127,7 +127,7 @@ If `adapters.persistence.postgres` **or** `adapters.persistence.sqlserver`
 is already present in the spec, print the report-mode output followed by
 `persistence is already wired — edit spec/architecture.yml by hand to change it (re-wire mode is a future version)`
 and stop. v1 wires exactly once. This check is also the exclusivity
-guard: a project declares **one** SQL backend (ADR 092) — writing a
+guard: a project declares **one** SQL backend — writing a
 second would fail the very next parse, so switching backends is a hand
 edit that *replaces* the declared key, never a second wire run.
 
@@ -156,14 +156,14 @@ answers skip their question. Defaults are marked; in a non-interactive
 context take every default.
 
 1. **Backend** — a two-option question: `Postgres` and `SQL Server`
-   (both fully supported since ADR 092). Keep each option's
+   (both fully supported). Keep each option's
    `description` neutral — a one-liner on the runtime shape at most
    (`psycopg driver, postgres:16 container` / `pymssql driver, mcr
    mssql container`); the choice is the user's, on their own
    grounds. The answer sets `<backend>` (`postgres` | `sqlserver`) for
    every later step: the adapter key, entity opt-ins, env
    `port_binding`, and the summary. Postgres is the non-interactive
-   default. Exclusivity (ADR 092) means this choice is exhaustive —
+   default. Backend exclusivity means this choice is exhaustive —
    one SQL backend per project.
 2. **Topology** — `local docker only` *(default)*, `docker + an
    external server env`, or `external only`. The docker env is named
@@ -171,7 +171,7 @@ context take every default.
    `prod`).
 3. **External env data posture** *(only when an external env was
    chosen)* — `protected` *(default; `archascode db apply` owns the
-   schema, ADR 052)* or `ephemeral`. Alongside this question, print —
+   schema)* or `ephemeral`. Alongside this question, print —
    don't ask — the adoption caveat: an external DB that already holds
    data is the `--baseline-existing-target` adoption flow at deploy
    time; wire does not handle it.
@@ -182,8 +182,8 @@ context take every default.
    block is needed or written.
 
 Not a question: `default_environment` stays exactly as it is (normally
-`dev`/memory, per the ADR-070 scaffold). Flipping the default binding
-is the ADR-017 silent-data-loss footgun; wire never touches it, and
+`dev`/memory, per the zero-config scaffold). Flipping the default binding
+is a silent-data-loss footgun; wire never touches it, and
 the summary says so.
 
 ### Step 5 — write the spec (one round-trip pass, additive only)
@@ -213,8 +213,8 @@ BACKEND = "postgres"  # <- interview answer 1: "postgres" | "sqlserver"
 DEFAULT_PORT = {"postgres": 5432, "sqlserver": 1433}[BACKEND]
 
 # 1. Adapter declaration — canonical env-var block (values live in
-#    .env.<env>, never in the spec). Shape diverges by backend (ADR
-#    097): postgres connects via a single DATABASE_URL-shaped
+#    .env.<env>, never in the spec). Shape diverges by backend:
+#    postgres connects via a single DATABASE_URL-shaped
 #    connection string; sqlserver keeps its four discrete keys.
 if BACKEND == "postgres":
     spec.setdefault("adapters", {}).setdefault("persistence", {})[BACKEND] = {
@@ -265,7 +265,7 @@ is the user's review surface and `git checkout` the undo.
 ### Step 7 — pre-seed `.env.<env>.example` for the new envs
 
 The green scratch tree contains the engine-authored per-env templates
-(ADR 055 — the docker one carries the container's superuser login:
+(the docker one carries the container's superuser login:
 `DB_USER=postgres` for postgres, `DB_USER=sa` for sqlserver). Copy them out for
 **exactly the environments this run created**, and only when absent at
 the project root:
@@ -301,7 +301,7 @@ Next:
 1. /archascode:init                       # adapter set changed → <driver>
 2. /archascode:apply                      # render: docker-compose.yml, schema DDL, <backend> adapters
 3. cp .env.docker.example .env.docker     # DB_USER=<superuser> already set
-4. API Explorer → select env 'docker'     # ephemeral: start owns the schema (ADR 052)
+4. API Explorer → select env 'docker'     # ephemeral: start owns the schema
 ```
 
 When a protected env was created, append its branch:
@@ -327,7 +327,7 @@ command -v archascode >/dev/null 2>&1 || echo "archascode CLI not on PATH — th
 ```
 
 Then the **pinned** no-environments stop — a spec with no
-`environments:` block (the pre-ADR-070 floor) must not proceed, because
+`environments:` block (before the zero-config scaffold) must not proceed, because
 writing the verifying spec default with no opt-out subjects would let
 a later `/archascode:init`-scaffolded `dev` silently inherit
 verification, the one place fail-closed would ambush the dev loop:
@@ -356,8 +356,8 @@ in (`not logged in — run archascode login`), not a render failure.
 ### Step A3 — the interview (once, up front)
 
 **Question 1 — mode.** `api_key` or `jwt`. `oauth2` is **not
-offered** — it has no engine ADR yet (ADR 107 narrowed the
-not-yet-implemented render rejection to `oauth2` alone), and wire must
+offered** — it has no engine support yet (the engine's
+not-yet-implemented render rejection narrows to `oauth2` alone), and wire must
 never author a spec it knows the engine will reject.
 
 - **Re-run against an already-wired spec** (Step A1's derivation says
@@ -367,7 +367,7 @@ never author a spec it knows the engine will reject.
   state, offer a third option: **remove auth**. Choosing remove auth
   skips straight to Step A4's removal branch.
 - Switching modes (e.g. `jwt` → `api_key`) rewrites `adapters.auth.id`
-  **and** `api.auth.type` together, as a pair — the ADR 107
+  **and** `api.auth.type` together, as a pair — the engine's
   cross-check forbids a mode/adapter mismatch, so there is no
   partial-switch state.
 
@@ -389,11 +389,11 @@ indent, `width=4096`), one load → edit → dump pass. Two spec keys only:
 
 ```
 adapters.auth.id: <jwt_bearer | api_key>   # the spec-level default
-api.auth.type: <jwt | api_key>             # coherent with the adapter (ADR 107 cross-check)
+api.auth.type: <jwt | api_key>             # coherent with the adapter (engine cross-check)
 ```
 
 Writing `type` is the whole authoring act — **never** write `scheme`
-(ADR 107 D3's plan-time bearer default already covers it; an explicit
+(the engine's plan-time bearer default already covers it; an explicit
 `scheme: bearer` is dead weight and anything else is render-rejected)
 and **never** write per-entity `entity.api.auth` (granularity stays
 `/archascode:analyze` / entity-editor territory). On a mode switch,
@@ -451,7 +451,7 @@ route, by the binding kind the environment selects:
   what the interview's answers say, never a pure append.
 
 Environment edits touch `port_binding` **only** — `default_environment`
-is never touched (the ADR-017 footgun stands).
+is never touched (the silent-data-loss footgun stands).
 
 ### Step A5 — validate via scratch render
 
@@ -505,14 +505,14 @@ engine already emitted somewhere.
 openssl rand -hex 32
 ```
 
-— exactly ADR 110 D2's recipe. Generate **only** when the key is
+— exactly the deploy skill's recipe for the same key. Generate **only** when the key is
 absent from the file (never overwrite an existing value). Guard every
 write with `git check-ignore .env.<env_name>`; if it would be tracked,
 refuse the write and point at `/archascode:init` (its gitignore block
 covers `.env`/`.env.*`). Create the file when absent. Each environment
 gets its **own** distinct key — never copy one environment's key to
 another. **Never print the generated value** in the summary. This is
-deliberately ADR 110's value source: deploy's rule is
+deliberately deploy's value source: deploy's rule is
 generate-only-when-both-sides-absent, push-local-when-only-local-has-
 one, so a wire-seeded key is exactly what deploy later adopts and
 pipes to the platform.
@@ -524,10 +524,10 @@ Print the pinned next-steps chain, verbatim:
 ```
 1. /archascode:apply        # real render — environments.json now carries appAdapters.auth
 2. /archascode:auth         # provider reconcile (values into .env.<env>)
-3. /archascode:deploy       # platform vars (ADR 110 reads auth's output)
+3. /archascode:deploy       # platform vars (deploy reads auth's output)
 ```
 
-The ordering is load-bearing, not stylistic: ADR 108's gate reads the
+The ordering is load-bearing, not stylistic: the auth skill's gate reads the
 engine-resolved `appAdapters.auth.id` from the project's
 `environments.json`, and wire's scratch renders never touch that file
 — skipping step 1 lands `/archascode:auth` on a closed gate. Family
@@ -538,16 +538,16 @@ mode are **reported**, never deleted — they're the user's file.
 
 ### Step A8 — summarize
 
-State the posture flip plainly: writing `api.auth.type` flips ADR
-033's app-wide posture default to `required` for every endpoint
+State the posture flip plainly: writing `api.auth.type` flips the
+app-wide posture default to `required` for every endpoint
 without an explicit `entity.api.auth: anonymous` — across **all**
 bindings and environments, because posture is spec-level while
 enforcement is binding-level. Its corollary in the same breath: opted-
 out (noop) environments still serve those `required` routes
 anonymously — the dev loop survives untouched — while opted-in
 environments start returning 401 without credentials the moment the
-next render deploys. When the spec declares `ui:` (ADR 096), restate
-ADR 107's static-mount caveat: the SPA still *loads* publicly; only
+next render deploys. When the spec declares `ui:`, restate
+the static-mount caveat: the SPA still *loads* publicly; only
 its data calls gate.
 
 For an **api_key** run, state the completion facts: a memory-only
@@ -558,8 +558,8 @@ further steps; a SQL-backed environment still needs its DB values in
 the footgun explicitly: persistence mode's printed
 `cp .env.<env>.example .env.<env>` step would **clobber** a generated
 key with the example's `AUTH_API_KEY=<set me>` placeholder — a
-non-empty wrong key the adapter will happily compare against (ADR 107
-fail-closes only on an empty/whitespace key, not a wrong one). When
+non-empty wrong key the adapter will happily compare against (the
+adapter fail-closes only on an empty/whitespace key, not a wrong one). When
 `.env.<env>` already exists, the instruction is **merge**, never
 `cp`-overwrite.
 
@@ -583,8 +583,8 @@ decline, nothing is written.
 - **Write or read a live `.env` / `.env.<env>`, or ask for
   credentials — except auth mode's api_key generation.** The
   persistence interview carries no secrets; placeholders stay
-  placeholders until the user fills the live file (ADR 055's
-  boundary). Auth mode's *only* licensed exception is Step A7's
+  placeholders until the user fills the live file (the
+  per-env `.env` boundary). Auth mode's *only* licensed exception is Step A7's
   `openssl rand -hex 32` key seed into a `git check-ignore`-guarded
   `.env.<env>` — never a credential, never a jwt value (those are
   `/archascode:auth`'s job).
@@ -600,7 +600,7 @@ decline, nothing is written.
 - **Touch `default_environment` — absolute in both modes.** Additive
   persistence writes and auth mode's environment re-pointing both stay
   scoped to `port_binding`; `default_environment` is untouched by
-  either mode (the ADR-017 silent-data-loss footgun).
+  either mode (the silent-data-loss footgun).
 - **Touch existing environments — except auth mode's `port_binding`
   re-pointing.** Persistence mode is purely additive. Auth mode's one
   licensed edit to an existing environment is re-pointing its
@@ -608,11 +608,11 @@ decline, nothing is written.
   about an existing environment changes.
 - **Re-wire persistence, or switch backends.** A spec with a SQL
   backend already declared gets a report and a stop, not a merge.
-  Under ADR 092 exclusivity a backend switch is a hand edit that
+  Under backend exclusivity a backend switch is a hand edit that
   replaces the declared key (and the per-entity opt-ins and env
   `port_binding`s that name it). **Auth mode is different by design**:
   it is a reconcile, not wire-once — persistence's stop exists for
-  ADR 092 exclusivity physics plus data-migration consequences neither
+  backend-exclusivity physics plus data-migration consequences neither
   of which apply to a pure spec-level auth-posture edit, so re-running
   `wire auth` to switch modes or remove auth entirely is expected and
   legal (§`Procedure — auth`, Step A3/A8).
@@ -623,13 +623,13 @@ decline, nothing is written.
   on the canvas is separate work.
 - **Write `scheme`, `entity.api.auth`, or a jwt value into any live
   file, in auth mode or persistence mode.** `scheme` is never spelled
-  (ADR 107 D3's plan-time default covers it); per-entity posture stays
+  (the engine's plan-time default covers it); per-entity posture stays
   `/archascode:analyze` / entity-editor territory; jwt values
   (`AUTH_JWKS_URL`, `AUTH_ISSUER`, `AUTH_AUDIENCE`) are never written
   to a live `.env.<env>` — that is `/archascode:auth`'s job, never
   wire's, in either mode.
 - **Offer `oauth2`.** The mode question offers only `api_key` and
-  `jwt`; `oauth2` stays reserved until it has its own engine ADR.
+  `jwt`; `oauth2` stays reserved until the engine supports it.
 
 ## Failure modes (v1)
 
@@ -654,17 +654,17 @@ whatever the error surfaced.
 
 ## Notes for future versions
 
-- **`oauth2` mode** — blocked on its own engine ADR (ADR 024's second
-  reserved slot, ADR 107's not-yet-implemented rejection still narrows
-  to it alone); when that lands, the auth-mode interview's Question 1
-  gains a third option.
+- **`oauth2` mode** — blocked on its own engine support (a second
+  reserved adapter slot; the engine's not-yet-implemented rejection still
+  narrows to it alone); when that lands, the auth-mode interview's
+  Question 1 gains a third option.
 - **Per-entity posture carve-outs** — anonymous exceptions
   (`entity.api.auth`) stay hand/editor-edited; if demand shows up, it
   is an `/archascode:analyze` or entity-editor concern, not wire's.
 - **Re-wire / edit mode for persistence** — change posture, add
   environments, extend entity coverage, or switch the SQL backend on
   an already-wired spec (today: report + hand-edit; a switch replaces
-  the declared key under ADR 092 exclusivity). Auth mode's reconcile
+  the declared key under backend exclusivity). Auth mode's reconcile
   mechanics (report-then-preselect-current, adopt-don't-churn
   per-environment resolution, the switch/removal machinery in
   §`Procedure — auth`) are the template to follow when this lands.

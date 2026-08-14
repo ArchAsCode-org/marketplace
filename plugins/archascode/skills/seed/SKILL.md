@@ -7,7 +7,7 @@ description: Generate plausible example records for every entity in an archascod
 
 Auto-populate an archascode consuming project with example records by
 generating seed data that the app's boot-time autoload can
-ingest (ADR 012, ADR 094, renamed to `seeds/` by ADR 105). The LLM reads
+ingest. The LLM reads
 the spec + the rendered `State` dataclasses and produces one JSON file
 per entity under `seeds/`, respecting relationships, enums, value
 objects, and declared invariants.
@@ -16,8 +16,7 @@ The skill writes JSON files on disk — it does **not** require the app
 to be running. If the app is up, the next restart picks them up.
 
 The skill *does* import the rendered codec (`src.adapter.persistence._codec`)
-to compute the per-entity fingerprints that ADR 015 requires in the
-manifest. That means the consuming project's `.venv` must exist and have
+to compute the per-entity fingerprints the manifest requires. That means the consuming project's `.venv` must exist and have
 the project installed — `/archascode:init` is the prerequisite. Reusing the live
 codec instead of reimplementing the hash here keeps drift detection and
 seeding in lockstep: when the fingerprint algorithm changes, the seed
@@ -52,7 +51,7 @@ Invocation forms:
 - `spec/architecture.yml` is present and parses.
 - `src/adapter/persistence/_codec.py` is present — its existence is
   the contract that seed data is loadable for this render. The
-  module must export `compute_entity_fingerprint` (ADR 015); if
+  module must export `compute_entity_fingerprint`; if
   importing it fails, the project was rendered by an older engine
   and the user must re-render before seeding.
 - `.venv/` exists and `src.adapter.persistence._codec` is importable
@@ -76,13 +75,14 @@ seeds/
 The shape matches exactly what the rendered project's `dump_all`
 writes, using these encoding rules (UUID → str, datetime → isoformat, Decimal →
 str, Enum → `.value`, composite VO → dict-of-fields).
-`entityFingerprints` is required by ADR 015's load gate; the skill
+`entityFingerprints` is required by the load gate; the skill
 computes the values by importing the rendered codec rather than
 re-implementing the hash. A manifest without the field will be
 rejected at load time.
 
 If `seeds/` does not yet exist but a legacy `snapshots/manifest.json`
-is present on disk (a pre-ADR-105 project), offer to migrate before
+is present on disk (a project rendered before the seed-vocabulary rename),
+offer to migrate before
 generating anything: **migrate** (`git mv snapshots seeds`, or plain
 `mv snapshots seeds` if `snapshots/` is untracked) to keep the existing
 seed data under its new name, or **regenerate fresh** into `seeds/`
@@ -104,7 +104,7 @@ test -f src/adapter/persistence/_codec.py || { echo "seed codec not rendered —
 test -f .archascode/manifest.json || { echo ".archascode/manifest.json missing — re-run /archascode:apply"; exit 1; }
 test -d .venv                  || { echo ".venv missing — run /archascode:init"; exit 1; }
 uv run python -c "from src.adapter.persistence._codec import compute_entity_fingerprint" \
-  || { echo "rendered codec missing compute_entity_fingerprint (ADR 015) — re-render with current engine"; exit 1; }
+  || { echo "rendered codec missing compute_entity_fingerprint — re-render with current engine"; exit 1; }
 ```
 
 Read `spec/architecture.yml` with PyYAML via a uv-provisioned
@@ -258,11 +258,12 @@ Then write `seeds/manifest.json` with:
 `schemaTimestamp` matters for a SQL binding (sqlserver or postgres) —
 the codec's `verify_schema` will refuse to load seed data whose
 identifier doesn't match the current schema. Despite the name it is no
-longer a manifest timestamp (that manifest section was removed by ADR
-087): it is `sha256[:16]` of the project's sorted cut-migration
+longer a manifest timestamp (that manifest section was removed): it is
+`sha256[:16]` of the project's sorted cut-migration
 filename set, computed by the rendered codec's
 `_compute_schema_identifier(project_root)` (union-glob over
-`src/adapter/persistence/*/schema/migrations`, ADR 092). Import it
+`src/adapter/persistence/*/schema/migrations` across every SQL
+backend). Import it
 from `src.adapter.persistence._codec` alongside
 `compute_entity_fingerprint` in the pattern below and set `schema_ts`
 from it — the hash algorithm is pinned in the rendered codec, so
@@ -270,7 +271,7 @@ computing it by hand is as wrong as hand-computing fingerprints. For
 memory binding, and for a SQL project with no cut migrations yet, it
 returns `''` and verification is skipped.
 
-`entityFingerprints` is required by `verify_fingerprints` (ADR 015).
+`entityFingerprints` is required by `verify_fingerprints`.
 **Do not compute the hash by hand** — the algorithm (sha256 over a
 canonical pair-list, 16-char truncation, type-string rendering via
 `_type_key`) is pinned in the rendered codec and may evolve. Instead,
@@ -316,7 +317,8 @@ Path("seeds/manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 ```
 
 If `compute_entity_fingerprint` is missing from the codec, the project
-was rendered by an engine that predates ADR 015 — stop and tell the
+was rendered by an older engine that predates fingerprint support —
+stop and tell the
 user to re-render. Do not fall back to writing the manifest without
 fingerprints; the load endpoint will reject it.
 
@@ -349,7 +351,7 @@ binding.
 - **Run `archascode render`.** If the project isn't rendered, stop
   and tell the user to render first. Same posture as `aac.py up`.
 - **Insert records via HTTP.** The skill writes files; loading happens
-  at boot (ADR 094), not through an HTTP call. Decoupling keeps the
+  at boot, not through an HTTP call. Decoupling keeps the
   skill usable on a project whose app isn't currently up.
 - **Go through `<E>.create()` factories.** Direct State construction
   via the seed loader is by design — the same path the existing
@@ -381,7 +383,7 @@ binding.
 | >50% of an entity's records fail validation            | Stop; print the prompt and the offending output for the user to inspect.                |
 | `seeds/` already exists                                 | Prompt: overwrite / merge / cancel. Default to cancel on non-interactive contexts.      |
 | `_compute_schema_identifier` returns `""` (no cuts yet) | Write `""`; loader will skip verification (matches memory-binding behavior).            |
-| `compute_entity_fingerprint` missing from rendered codec | Stop. Project predates ADR 015 — user must re-render with the current engine.           |
+| `compute_entity_fingerprint` missing from rendered codec | Stop. Project predates fingerprint support — user must re-render with the current engine. |
 | `<E>State` not importable from `src.domain.entities.*`  | Stop. Likely an `/archascode:apply` step was skipped; tell the user to re-render.              |
 
 No retries. The user re-invokes after adjusting the spec or theme.
@@ -399,5 +401,5 @@ No retries. The user re-invokes after adjusting the spec or theme.
   counts based on cardinality (e.g. 100 line items per 10 orders per
   3 customers) instead of a uniform `--count`.
 - **Multiple themes / named seeds.** Today seeds are
-  unnamed (ADR 012 v1). When the seed system grows named
+  unnamed (v1). When the seed system grows named
   seeds, this skill should grow a `--name <slug>` arg.
