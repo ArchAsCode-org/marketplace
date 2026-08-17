@@ -1,17 +1,21 @@
 ---
 name: deploy
-description: Provision and reconcile deployment-platform environments for a rendered archascode consuming project — an interview + plan/confirm/apply reconcile over the Railway CLI that creates environments and DB services, wires APP_ENV and reference variables, seeds the local .env.<env>, runs archascode db apply, and smoke-checks /health per environment. Accepts a declared environment name as an argument (e.g. `/archascode:deploy qa`) to scope the whole run to that single environment. Railway is the only v1 platform. Use when the user wants the app on a platform; `db` applies schema, `apply` resolves hand-offs.
-allowed-tools: Bash(railway whoami:*), Bash(railway login:*), Bash(railway status:*), Bash(railway init:*), Bash(railway link:*), Bash(railway add:*), Bash(railway environment list:*), Bash(railway environment config:*), Bash(railway environment link:*), Bash(railway environment new:*), Bash(railway variable:*), Bash(railway variables:*), Bash(railway domain:*), Bash(railway tcp-proxy list:*), Bash(railway tcp-proxy create:*), Bash(railway deployment:*), Bash(railway redeploy:*), Bash(railway volume -e:*)
+description: Provision and reconcile deployment-platform environments for a rendered archascode consuming project — an interview + plan/confirm/apply reconcile over the Railway CLI that creates environments and DB services, wires APP_ENV and reference variables, seeds the local .env.<env>, writes the pre-deploy schema-apply hook, and smoke-checks /health per environment. Accepts a declared environment name as an argument (e.g. `/archascode:deploy qa`) to scope the whole run to that single environment. Railway is the only v1 platform. Use when the user wants the app on a platform; this skill owns deploy-time schema apply (the platform runs the hook), `/archascode:db` stays the local plan/apply verb, and `apply` resolves hand-offs.
+allowed-tools: Bash(railway whoami:*), Bash(railway login:*), Bash(railway status:*), Bash(railway init:*), Bash(railway link:*), Bash(railway add:*), Bash(railway environment list:*), Bash(railway environment config:*), Bash(railway environment link:*), Bash(railway environment new:*), Bash(railway variable:*), Bash(railway variables:*), Bash(railway domain:*), Bash(railway tcp-proxy list:*), Bash(railway deployment:*), Bash(railway redeploy:*), Bash(railway volume -e:*), Bash(archascode targets:*)
 ---
 
 # /archascode:deploy
 
 Put the rendered app on a deployment platform, and keep it in sync with
 `spec/architecture.yml`'s environment table on every later run. **`deploy`
-provisions and reconciles the platform; `/archascode:db` applies schema;
-`/archascode:apply` resolves hand-offs.** This skill never applies schema
-itself beyond invoking `/archascode:db`'s own `apply` verb, and it never
-resolves a hand-off — those stay separate, explicit steps in the chain.
+provisions and reconciles the platform, and owns deploy-time schema apply:
+the platform itself runs a pre-deploy hook that applies schema before any
+new code takes traffic (see Pre-deploy schema apply, below).
+`/archascode:db` stays the local plan/apply verb — preview or apply schema
+from a laptop, against a database you can reach directly — and
+`/archascode:apply` resolves hand-offs.** The two schema-apply lanes never
+invoke each other, and this skill never resolves a hand-off — that stays a
+separate, explicit step in the chain.
 
 Every run of this skill is a **reconcile**: it reads the project's declared
 environments, asks which of them should exist on the platform, compares that
@@ -34,29 +38,51 @@ platform state — there is no separate "first deploy" mode.
     and proceed only on the answer. A typo'd environment name must not
     quietly deploy everything.
   - **Anything else** is free-text steering that pre-answers interview
-    questions, mirroring `/archascode:wire`/`/archascode:analyze` (e.g.
-    `"skip the schema apply"`, a platform name). A question the free
+    questions, mirroring `/archascode:analyze` (e.g.
+    `"skip the Explorer question"`, a platform name). A question the free
     text already answers is skipped; everything else is still asked.
 
 ```
 /archascode:deploy
 /archascode:deploy prod
-/archascode:deploy qa skip the schema apply this time
-/archascode:deploy skip the schema apply this time
+/archascode:deploy qa skip the Explorer question this time
+/archascode:deploy use the qa branch for the new environment
 ```
 
 ## Run scope
 
 Every rule below is written over "in-scope environments"; this section
-defines that set once.
+defines that set once. Scope is **per-channel**, mirroring
+`spec/deploy_targets.yml`'s two grants (Desired state, above). The
+mechanical source is `archascode targets scope --json`: run it and read,
+per declared environment, whether it is in reconcile scope and/or verify
+scope, plus its reason. Its two aggregate signals govern the run's
+consequences:
 
-- **Default (no environment argument)**: every declared environment is
-  in scope — existing ones reconcile, missing ones enter the creation
-  question.
+- These are independent: a `verify: true, reconcile: false` target gets
+  exactly what it granted — probed and reported, **never written**. A
+  declared environment with **no** hosting target row stays
+  interview-visible as a `not configured — add?` line (Step 2) rather
+  than silently dropping out of reach the moment the file gains its
+  first row.
+- An environment **present on Railway but declared out of reconcile
+  scope** (a `local` hosting target, or `reconcile: false`) is *reported
+  as fact* — an informational, surplus-style line (Step 3) — and never
+  reconciled: presence-on-platform does not, by itself, put an
+  environment in scope.
+- When **every** described hosting target is out of reconcile scope
+  (e.g. all `local`) and no declared environment is left undescribed,
+  the run reports `no environments in reconcile scope — see
+  spec/deploy_targets.yml` and stops cleanly rather than presenting an
+  empty plan.
 - **Scoped run** (`/archascode:deploy <env>`): exactly the named
-  environment is in scope. The creation question, the
-  spec-travels-with-branch check, the plan, Steps 5–7, and the final
-  report all narrow to it. Two scoped-run specifics:
+  environment is in scope, **within** the target-derived base above —
+  naming an environment still preselects its creation question (explicit
+  intent, unchanged), but naming an environment whose hosting target
+  withholds `reconcile` (or names a provider this skill does not drive)
+  produces a **stop** naming the target row and the file edit that would
+  grant it — explicit run-time intent never outranks declared consent.
+  Two further scoped-run specifics, unchanged by targets:
   - If the named environment is missing on Railway, the creation
     question is still asked (confirmation gates every mutation) but
     **preselected yes** — naming the environment is explicit intent and
@@ -70,7 +96,9 @@ defines that set once.
     full surplus report.
 - Scoping is per-run steering, recorded nowhere — the other declared
   environments simply re-enter scope on the next unscoped run, the same
-  "not this run" semantics as unchecking a plan bundle.
+  "not this run" semantics as unchecking a plan bundle. Targets scope is
+  the opposite: it is declared, durable consent, read fresh every run
+  from `spec/deploy_targets.yml`.
 
 ## Permission posture
 
@@ -99,18 +127,19 @@ fallback lane below, never a workaround. Variable *removal* — the
 update-lane action by design, not a deletion.
 
 **The second accepted-friction seam.** Beyond the Step 6/7 `.env.<env>`
-secret pipe (below), the reconcile-time branch-mapping write (Step 5's
-"Branch mapping writes" subsection) is a second named seam the grant
-deliberately does not cover: a JSON patch piped to `railway environment
-edit`'s stdin. Unlike the secret pipe, the patch carries only a branch name
-and a service ID — no secret — so the transcript-hygiene rule is not in
-play; the seam exists because the pipe's leading `echo` defeats the grant's
-prefix match (below), not for hygiene. It may prompt (manual mode) or be
-classifier-judged (auto mode); a denial enters the fallback lane with the
-exact `!`-prefixed one-liner. The skill does **not** route around this seam
-by writing the patch to a file and redirecting it in with `<` — that is
-equally outside the grant and leaves an artifact to clean up, so it buys
-nothing.
+secret pipe (below), the reconcile-time stdin patch to `railway environment
+edit` is a second named seam the grant deliberately does not cover — Step
+5's "Branch mapping writes" subsection and the pre-deploy hook write
+(Pre-deploy schema apply, above) both ride it. Unlike the secret pipe, the
+patch carries only identity and configuration — a branch name, a service
+ID, and (for the hook write) the pinned schema-apply command — no secret —
+so the transcript-hygiene rule is not in play; the seam exists because the
+pipe's leading `echo` defeats the grant's prefix match (below), not for
+hygiene. It may prompt (manual mode) or be classifier-judged (auto mode); a
+denial enters the fallback lane with the exact `!`-prefixed one-liner. The
+skill does **not** route around this seam by writing the patch to a file
+and redirecting it in with `<` — that is equally outside the grant and
+leaves an artifact to clean up, so it buys nothing.
 
 **The stdin-priority trap.** `railway environment edit` is deliberately
 **not** granted, and its **flag form is never used** as an instruction
@@ -150,17 +179,16 @@ interpretation pins:
   output and *writing* them anywhere but gitignored files. Do not "fix"
   these reads with a secret-stripping pipe; that defeats the grant to
   solve a non-violation.
-- The Step 6 BYO channel and the Step 7 seed step pipe or redirect
-  secrets into the gitignored `.env.<env>` on purpose, so the values
-  never transit the transcript. Those compound commands are *expected*
-  to fall outside the grant and may prompt or be classifier-judged; that
-  is accepted — hygiene outranks the no-prompt goal, and the write
-  targets a workspace file. On a denial there, hand the user the exact
-  one-liner to run via the `!` prefix. **The `AUTH_API_KEY`
-  generation/seed compound command** (Deployed auth posture, above) is a
-  named member of this same accepted class — same gitignored target,
-  same expected-outside-the-grant runtime behavior, same fallback
-  one-liner on denial.
+- The Step 6 BYO channel and the Deployed auth posture's `AUTH_API_KEY`
+  seed pipe or redirect secrets into the gitignored `.env.<env>` on
+  purpose, so the values never transit the transcript. Those compound
+  commands are *expected* to fall outside the grant and may prompt or
+  be classifier-judged; that is accepted — hygiene outranks the
+  no-prompt goal, and the write targets a workspace file. On a denial
+  there, hand the user the exact one-liner to run via the `!` prefix.
+  Both are named members of one accepted class — same gitignored
+  target, same expected-outside-the-grant runtime behavior, same
+  fallback one-liner on denial.
 
 ### On any permission denial
 
@@ -261,7 +289,7 @@ described under Procedure.
 
 ## Desired state
 
-Desired state comes from exactly two reads — never from any other spec
+Desired state comes from exactly three reads — never from any other spec
 field, and never inferred from `compute`/`data` alone (they are heuristics
 for interview *defaults*, not decisions):
 
@@ -279,6 +307,26 @@ for interview *defaults*, not decisions):
     `data`, `persistenceBackends`, `appAdapters.auth.id` (absent →
     `noop`, the `/archascode:apply` reader fallback — Deployed auth
     posture, below) — is the desired-state input.
+- **`spec/deploy_targets.yml`**, read directly. This file is the
+  deploy-layer skills' declared intent and interview memory — **never**
+  "state": the platform stays the record of actuals, and this file is
+  never reconciled *toward* it. A row here carries identity and grants
+  only, **never values** — the env-key seam (below) keeps sole custody of
+  every runtime value. Tolerance, four arms:
+  - **Absent** → legal, and means exactly today's scope behavior in
+    full: every declared environment is in scope on both channels (Run
+    scope, below).
+  - **`schemaVersion: 1`** → proceed.
+  - **`schemaVersion` absent, malformed, or any other value** → stop:
+    `spec/deploy_targets.yml does not carry schemaVersion: 1 — fix the
+    file or remove it (absence is legal)`, naming the file and the
+    expected version.
+  - **Unparseable YAML** → the same stop.
+  - Otherwise: per environment, up to three target rows keyed `hosting` /
+    `persistence` / `auth`, each an identity (`provider`, plus
+    provider-specific keys) plus the two independent grants `reconcile`
+    and `verify`. This read feeds Run scope and Step 3's coherence
+    checks, below.
 - **One `spec/architecture.yml` read**: the declared env-key names under
   `adapters.persistence.<backend>.env` (for postgres, the single `url` key).
   This supplies the variable *name* to wire, never a value.
@@ -299,14 +347,19 @@ neither consumer's absence is a security claim.
 ### The interview: which NEW environments to create is asked, every run
 
 Railway is the durable record of platform reality; the repo never caches
-an answer. An environment **already on Railway** is an in-scope fact —
-reconciled every run (variables, `APP_ENV`, branch verification,
-domain/proxy existence) with its state shown on the plan screen — and no
-existence question is asked about it. So on **every** run,
-list **only the in-scope declared environments not present on Railway**
-(all declared environments by default; exactly the named one on a scoped
-run — Run scope) and ask
-which of them to **create** this run, with defaults layered in this order:
+an answer of its own accord — but `spec/deploy_targets.yml`'s grants are
+declared consent, not a cache, and they now gate what "in-scope" means
+(Run scope, above). Presence-on-platform no longer implies scope by
+itself: an environment already on Railway but declared **out** of
+reconcile scope (a `local` hosting target, or `reconcile: false`) is
+reported as fact on the plan screen — an informational, surplus-style
+line — and never reconciled, never asked about. An environment **in**
+reconcile scope is reconciled every run (variables, `APP_ENV`, branch
+verification, domain/proxy existence) with its state shown on the plan
+screen, and no existence question is asked about it. So on **every**
+run, list **only the reconcile-scope declared environments not present
+on Railway** (Run scope) and ask which of them to **create** this run,
+with defaults layered in this order:
 
 1. **Axis heuristics** (suggestions only — the user's answer is what
    counts):
@@ -321,14 +374,21 @@ which of them to **create** this run, with defaults layered in this order:
 2. **A scoped run's named environment** is preselected **yes** regardless
    of the heuristics above — naming it is explicit intent (Run scope).
 
-The answer is recorded **nowhere in the repo** — unchecking a creation
-candidate means "not this run", nothing more: it is recorded nowhere and
-offered again next run. Omission can no longer route anything toward
+A **declined** creation candidate is recorded **nowhere in the repo** —
+unchecking it means "not this run", nothing more: it is recorded nowhere
+and offered again next run. Omission can no longer route anything toward
 deletion, because nothing routes toward deletion. A
 `compute: docker` environment the user opts into anyway is reconciled
 identically to any other SQL environment: the `compute` axis describes the
 *local* dev loop, and on the platform every database is external by
 construction.
+
+An **accepted** creation candidate is different: its "yes" lands on disk
+in `spec/deploy_targets.yml` as a full hosting target row with **both
+grants written explicitly** — `reconcile: true, verify: true` — per
+Step 3's write discipline, below. Grants are consent; writing them
+explicitly on creation is what lets a later run's scope derivation trust
+the file at all.
 
 ## Branch posture
 
@@ -444,8 +504,13 @@ no spec-derived reconcile).
 **Enable/disable writes and converge.** Four arms:
 
 1. **Enable, environment created this run**: the variable joins Step 6's
-   batched writes (`--skip-deploys` on all but the final write) — the
-   batch's final deploy carries it; no extra converge.
+   batched writes. For a **SQL** environment every write in that batch
+   passes `--skip-deploys` (Step 6, below) and the variable rides the
+   **pre-deploy hook write's** triggered deploy (or the decline arm's
+   plain `redeploy` — Pre-deploy schema apply, above); for a
+   **memory** environment the batch keeps its existing rule (final
+   write without `--skip-deploys`) and that write's own auto-redeploy
+   carries it. Either way, no extra converge.
 2. **Enable, existing environment** (explicit request): one
    ```
    railway variable set 'CORS_ORIGIN_REGEX=^vscode-webview://.*$' --service <appService> --environment <env>
@@ -566,12 +631,13 @@ on **neither** side (platform absent, local absent):
   gitignored `.env.<env>`** — never through the transcript. It
   executes at apply time with the confirmed bundle, **before** that
   environment's Step 6 variable batch (the platform write below reads
-  the file, so the file line must exist first) — a new write site, not
-  a Step 7.1 scope tweak: Step 7.1's SQL-scoped seed loop is
-  untouched. The same `git check-ignore -q .env.<env>` guard rule
-  applies at this site (not ignored → stop the seed, point at
-  `/archascode:init`). This is the first `.env.<env>` write this skill
-  makes for a **memory-only** environment.
+  the file, so the file line must exist first) — this is its own write
+  site: this skill's only skill-initiated `.env.<env>` write, beside
+  the user-driven Step 6 BYO channel. The same
+  `git check-ignore -q .env.<env>` guard rule applies at this site (not
+  ignored → stop the seed, point at `/archascode:init`). This is the
+  first `.env.<env>` write this skill makes for a **memory-only**
+  environment.
 - **Platform write**: the value is piped from the file into
   `railway variable set "AUTH_API_KEY=$(…)" --service <appService>
   --environment <env>` — the existing Step 6/7 secret-pipe seam, same
@@ -655,6 +721,110 @@ generation line in its creation bundle; confirmed values join Step 6's
 batched writes. A creation candidate has no app service at plan time
 and is trivially platform-missing.
 
+## Pre-deploy schema apply
+
+A deploy that finishes booting proves nothing about its schema: the
+generated app degrades gracefully when a table is missing, so `/health`
+and every entity route can answer `200` against a database with no
+tables at all. The only gate that catches this **before** it goes live
+is one that runs inside the deploy itself, ahead of traffic — Railway's
+`deploy.preDeployCommand`, a per-environment, per-service hook. This
+skill owns it as the fourth member of its per-environment vocabulary
+(after the branch mapping, `CORS_ORIGIN_REGEX`, and the resolved auth
+adapter's keys), pinned to exactly one value:
+
+```
+uv run python aac.py --env <spec environment name> migrate
+```
+
+with the environment name baked in as a **literal** — the hook always
+runs inside its own environment, so there is no shell to expand a
+variable in, and this skill never writes one. The vocabulary applies
+**only** to environments whose `persistenceBackends` is non-empty (the
+same `environments.json` read Desired state already performs) — a
+memory environment has no schema to apply and `migrate` refuses a
+non-database-bound environment outright, so it never gets a hook. Both
+a provisioned-Postgres environment and a BYO one are in scope: the hook
+runs in the built image, with the same platform variables Step 6 wires
+already present, so a BYO backend's schema now applies **in-container**
+— there is no laptop-reachable-coordinates requirement left for schema
+apply at all.
+
+**What the hook is.** It runs pre-traffic, in the built image, with the
+environment already resolved. A non-zero exit **fails the deployment**
+while the previous one keeps serving — so a refused apply (a protected
+database that has diverged from what the cuts expect) becomes a failed
+deploy with the old code still up, which is the correct failure mode.
+Nothing new is emitted to produce this: the hook runs exactly the
+command `/archascode:db`'s `apply` verb has always spawned locally
+(`aac.py migrate`), one layer closer to where the database actually
+lives.
+
+**Classification (config-truth, three states).** Every run reads each
+in-scope environment's app-service `deploy` block via `environment
+config --json` (the same read Branch posture already performs) — the
+config document is **sparse**, so the key being **absent** (not `null`)
+is the unset shape:
+
+- **Absent** — missing wiring. Proposed **every run**, with the plan
+  line stating plainly that confirming it **triggers a deployment of
+  that environment** — the user is confirming a deploy, not a quiet
+  config edit. For an environment **created this run**, the line rides
+  that environment's per-environment bundle (a deploy is happening
+  regardless of this write). For an **existing** environment
+  (retrofit), it is its own **separately-confirmed** line, the same
+  pattern as every other deploy-triggering converge in this skill. One
+  further gate for BYO environments: the hook is proposed only once the
+  environment's declared connection keys are **present platform-side**
+  — proposing it earlier would manufacture a failed deploy by
+  construction (`migrate` dies the moment it can't find the connection
+  variable). Until then, the row reports `hook: withheld (BYO values
+  unset)` and the proposal returns automatically once the keys land.
+- **Skill-owned** — the stored value, after **normalization**, equals
+  the pinned value. The platform coerces a written string into a
+  one-element array on both read surfaces, so normalization means:
+  unwrap a one-element array and compare the single string. Nothing to
+  do, and **no write is issued** — adoption here is free, by comparison
+  alone, never by re-sending a same-value write. This is exactly how a
+  pre-existing known-good hook (left behind by an earlier manual setup,
+  say) gets absorbed on the first post-merge reconcile.
+- **Hand-managed** — any other non-absent value (a different command, a
+  multi-element array). Reported as a **fact**, never rewritten; a
+  request to change it is stop-and-explain, the same posture this skill
+  takes with a hand-managed CORS family.
+
+**The write.** The only write path is the reconcile-time stdin pipe, keyed by
+the app service's **ID**, patching `deploy.preDeployCommand` alongside
+whatever else the same patch carries:
+
+```bash
+echo '{"services":{"<appServiceId>":{"deploy":{"preDeployCommand":"uv run python aac.py --env <name> migrate"}}}}' | railway environment edit --environment <env> --json
+```
+
+The flag form is never used here either — see the stdin-priority trap
+in Permission posture. Verify by read-back of **both** surfaces: the
+config document (did the write take), and — on the deploy the write
+triggers — the deployment manifest (`deployment list --json` →
+`meta.serviceManifest.deploy.preDeployCommand`), never by exit code or
+`committed:true` (a pipe write reports `committed:true` even on a
+no-op). This is a **reconcile-channel** action under the hosting
+target's `reconcile` grant — the same accepted-friction seam the branch
+write already uses (Permission posture's "second accepted-friction
+seam", above), so no grant change is needed for it.
+
+**No removal lane.** There is no verified CLI path that clears
+`preDeployCommand` — an empty or `null` value piped through silently
+does nothing, and the flag form is blind to every value. A request to
+remove the hook gets an informational line naming the Railway dashboard
+as the place to clear it, plus the consequence (no deploy-time schema
+apply from then on). Every skill-side recovery this section describes
+writes a **working** value; none of them ever attempts removal.
+
+**Claims discipline.** This section — and the report — say nothing
+about whether the hook runs once per deploy or once per replica, and
+nothing about multi-replica migration safety. That is unverified, and
+staying silent about it is deliberate, not an oversight.
+
 ## Procedure
 
 ### Step 1 — query current Railway state
@@ -664,6 +834,7 @@ relies on link-state or memory:
 
 ```bash
 railway status --json
+railway status --json | archascode targets adopt - --json   # target-row proposals (Adopting deployments, below)
 railway environment list --json
 railway environment config --environment <name> --json   # per environment
 railway variable list --environment <name> --json         # per environment
@@ -679,7 +850,8 @@ in a two-service environment (app + DB) that may be the wrong one, so the
 explicit `--service <app-service>` flag above is load-bearing, not
 decorative. This read supplies **deploy-truth** (the branch actually
 deployed), which both the no-mapping arm of Branch posture and the
-converge-verification semantics of Step 5/Step 7.4 consume.
+converge-verification semantics of Step 5/Step 7's deployed-branch
+verification (item 3) consume.
 
 **The last line is a second, app-service-scoped `variable list` read**,
 added for Explorer CORS classification (Explorer access posture, above):
@@ -784,6 +956,13 @@ present **one** plan covering every environment in scope. Every
 confirmation below uses `AskUserQuestion` (see Permission posture) — never
 a prose "reply yes to continue."
 
+Plan lines come from **two independent sources**: the desired-vs-current
+diff, and the `spec/deploy_targets.yml` adoption lines (Adopting
+deployments, below). A run where every environment is already fully
+converged on the platform still builds and presents the plan whenever an
+adoption line exists — convergence and adoption are separate questions,
+and an adoption line is real, confirmable plan content on its own.
+
 #### The spec-travels-with-branch check (run before the plan is shown)
 
 For every in-scope environment X mapped to branch B (the deploy branch
@@ -844,11 +1023,110 @@ create/update lines drop, other environments proceed, and an
 every-in-scope-environment park reports and stops rather than
 presenting an all-parked plan.
 
+#### The cuts-travel-with-branch check
+
+With the laptop apply lane retired, the pre-deploy hook (Pre-deploy
+schema apply, above) is the **only** remaining apply path — and a hook
+running against an empty committed chain doesn't fail: it bootstraps
+`schema_version`, applies nothing, and boots the app into the
+green-and-empty state **permanently**. This check exists to keep that
+from happening silently.
+
+For every in-scope environment X with a non-empty `persistenceBackends`,
+mapped to branch B (the same B the spec-travels-with-branch check
+above resolves), use the **same fetch** already performed there to list
+the committed schema chain on `origin/B`:
+
+```bash
+git fetch <remote> B   # quiet, likely already run above
+git ls-tree -r --name-only <remote>/B -- spec/locked | grep 'schema/migrations/.*\.sql$'
+```
+
+- **Zero cuts for X's backend on B** — park **`blocked (cuts)`**, with
+  exactly the `blocked (branch)` mechanics: X's create/update lines
+  drop from the plan, other environments proceed unaffected, and an
+  every-in-scope-environment park reports and stops rather than
+  presenting an all-parked plan. The row offers `archascode
+  cut-schema-migration` — naming plainly that it is a **network verb**
+  needing archascode-cloud login (relay `/archascode:login` on a 401)
+  — then **stops for the user to commit and push the cut**: this skill
+  still never commits. The fix pointer names the full sequence: cut →
+  commit → push to `<mapped branch>` → re-run.
+- **The local-vs-origin divergence line.** Sealed cuts are immutable,
+  so this is a **file-list comparison**, not a content diff: compare
+  the working tree's `spec/locked/**/schema/migrations/*.sql` chain
+  against `origin/B`'s, per in-scope SQL environment. A difference
+  produces one **report-level** line naming the unpushed or
+  uncommitted cut files — never a park, since the deployed environment
+  is internally consistent either way. The line exists so "my new cut
+  silently isn't live yet" is surfaced rather than discovered later.
+
+#### Adopting deployments that predate `spec/deploy_targets.yml`
+
+A project that deployed before this file existed has real Railway
+environments with no corresponding target row. `archascode targets
+adopt` (run at Step 1, above, over the `railway status --json` output)
+derives the fix mechanically: for every declared environment it proposes
+`propose-hosting`/`propose-persistence` entries, fills a drifted adopted
+key (`fill-adopted-key`), or reports `noop`, `skip`,
+`no-candidate`/`ambiguous` (candidate lists, no proposed row), or
+`inaccessible`. **Adoption is independent of reconcile convergence by
+construction** — a fully converged environment with no target row still
+yields its proposal, so there is no "nothing to reconcile" path that
+skips the offer.
+
+Render every actionable entry (`propose-hosting`, `propose-persistence`,
+`fill-adopted-key`) as a plan line inside its environment's bundle — one
+confirmation per environment, the same per-environment bundle
+confirmation described below. An `ambiguous` entry becomes an interview
+question (which candidate is the app/DB service); a `no-candidate`
+finding is reported, no row proposed. Declining an environment's bundle
+writes nothing for it; it is offered again next run.
+
+After the bundle confirmation, apply the confirmed proposals with
+`archascode targets adopt - --apply --expect <digest> --env
+<selected-envs>`, passing back the plan's digest and the confirmed
+environment subset; resolve any `ambiguous` answers via `archascode
+targets set` (below) before this apply call. **Ordering pin**: run the
+targets apply first, then any `ambiguous`-resolving `targets set`
+writes, then the Railway mutations for the same environments (Step 4
+onward) — the digest re-derivation the apply call performs must see the
+same targets file and status document the plan saw, so nothing that
+could change either may run before it.
+
+#### The per-key write discipline (stated once, applies to every target write)
+
+Writes to `spec/deploy_targets.yml` ride the `archascode targets`
+verbs (`set`/`adopt --apply`), which enforce the write discipline in
+code — declared keys refuse on mismatch rather than rewrite, adopted
+keys fill/update only via their own kind, and grants apply only when a
+write names them. Confirmations stay `AskUserQuestion`-shaped: every
+write this skill makes is either same-value-inert or rides a confirmed
+plan line, never silent.
+
+#### Coherence checks (a pure local read, every plan phase)
+
+Before the plan is shown, run `archascode targets check --json` — a
+pure local read, no platform call — and park each finding's environment
+as `blocked (targets)`, with exactly the `blocked (branch)` mechanics
+above: its create/update lines drop from the plan, other environments
+proceed unaffected, and the report row names the fix. The offer for an
+orphaned row or a renamed environment is a **pointer**, not a write —
+name the plugin's Adapter rail environment editor or a hand edit of
+`spec/deploy_targets.yml` as the fix; this skill has no removal or
+carry-over verb. Safety never depends on this check running: every plan
+line derives from the *join* of the spec and the targets file, so a
+grant sitting on an incoherent target produces no plan line by
+construction.
+
 **Per-environment confirmation.** One `AskUserQuestion` **multi-select**
 over per-environment apply bundles: each in-scope environment's creates
 and updates (new environment, DB services, missing or drifted wiring
-variables, `APP_ENV`, missing domain or TCP proxy, missing auth wiring
-or an `AUTH_API_KEY` generation line — Deployed auth posture, above) as
+variables, `APP_ENV`, missing domain, missing auth wiring or an
+`AUTH_API_KEY` generation line — Deployed auth posture, above — the
+pre-deploy hook write for a created SQL environment — Pre-deploy schema
+apply, above — and the environment's `spec/deploy_targets.yml` adoption
+row when it has no target row yet — Adopting deployments, above) as
 **one selectable line, all preselected**. Unselecting a bundle means
 exactly "skip this environment this run" — nothing is recorded, nothing
 is deleted, and the environment re-enters the plan next run.
@@ -858,7 +1136,8 @@ action.
 Three lines ride **outside** the bundles, each with its **own** separate
 confirmation:
 
-- The steady-state branch-converge line (Step 7.4 arm 2) — unchanged.
+- The steady-state branch-converge line (Step 7's deployed-branch
+  verification, item 3, arm 2) — unchanged.
 - **The steady-state Explorer-converge line** (Explorer access posture,
   above) — a config-truth/deploy-truth Explorer skew on an absent or
   skill-owned environment is always reported, but its converge
@@ -908,8 +1187,15 @@ names the dashboard **action**, never a CLI spelling:
 - **Orphaned volume** (`serviceName: null` in Step 1's volume read — e.g.
   left by a pre-103 cleanup or a hand deletion): the same dashboard
   pointer.
-- **Surplus TCP proxy or domain**: the same pattern. (A **missing**
-  proxy/domain is still created — creation verbs are unaffected.)
+- **Surplus domain**: the same pattern. (A **missing** domain is still
+  created — creation verbs are unaffected.) An existing TCP proxy on a
+  DB service is likewise never touched — it stays surplus-reported with
+  the dashboard pointer, never deleted (this skill's deletion-free
+  posture, unchanged).
+  **Laptop database access is a named hand lane, not a skill job**: a
+  user who wants it creates a proxy in the dashboard and hand-maintains
+  `.env.<env>` — `/archascode:db` stays the local plan/apply verb for
+  whoever does that.
 
 **Rename** — no rename-detection machinery at all: a rename simply *is* an
 ordinary scratch create (the new name, under the normal creation
@@ -923,7 +1209,8 @@ closed vocabulary: environments, the DB services this skill provisioned,
 the wiring variables it set, `APP_ENV`, `APP_DATA`, `CORS_ORIGIN_REGEX`
 (app service, Explorer access posture, above), the resolved auth
 adapter's env keys (app service, Deployed auth posture, above), domain
-existence, and TCP-proxy existence. Everything
+existence, and the pre-deploy schema-apply hook (`deploy.preDeployCommand`,
+app service — Pre-deploy schema apply, above). Everything
 else on a service — scaling, regions, healthchecks, dashboard experiments,
 the service-level GitHub source settings, any variable this skill did not
 set — is user-owned and is never read-modify-written, "corrected," or
@@ -970,8 +1257,9 @@ database the user added by hand is invisible to reconcile by construction
 **Named exclusions — detect, stop, explain; never migrate:**
 
 - **SQL backend switch** — a spec whose declared backend changed since the
-  last deploy is a hand edit (the same `wire` precedent as a backend
-  exclusivity switch), not something this skill resolves.
+  last deploy is a hand edit (the same backend exclusivity switch handled
+  by a hand edit or `/archascode:analyze`), not something this skill
+  resolves.
 - **Data migration**, of any kind — this skill provisions and wires; it
   never moves data between databases.
 
@@ -981,6 +1269,11 @@ Apply the confirmed per-environment bundles. There is no delete arm —
 informational lines are never applied.
 
 ### Step 5 — topology: scratch-create environments
+
+For a created SQL environment, this step's `add` and branch-converge
+arms complete **first** — including whichever deploys they fire — before
+Step 6's variable batch and the pre-deploy hook write that follows it
+(Pre-deploy schema apply, above, states the full ordering and why).
 
 - **Railway environment name == spec environment name**, always — this is
   what keeps `APP_ENV`, `RAILWAY_ENVIRONMENT_NAME`, and the spec in visible
@@ -1005,7 +1298,8 @@ informational lines are never applied.
     after `add` builds the repo's **default** branch regardless of
     `--branch` (a Railway platform behavior, not a flag bug), so when the
     mapped branch differs from the repo default this converges per the
-    "Branch mapping writes" subsection below / Step 7.4's arm 1.
+    "Branch mapping writes" subsection below / Step 7's deployed-branch
+    verification (item 3), arm 1.
   - DB service: `railway add --database postgres --json`, **only when**
     the environment's `persistenceBackends` names a Railway-provisionable
     backend. A memory-only environment gets no DB-shaped resource at all
@@ -1040,6 +1334,19 @@ informational lines are never applied.
   Railway's project-scoped auto-suffix behavior (a second Postgres coming
   back named `Postgres-Qurn`, for example) makes an assumed name silently
   wrong.
+- **Creation-time target rows.** Immediately after capturing the created
+  app service's name and (when provisioned) the DB service's name from
+  the `add`/`status` output above, write this environment's hosting row
+  and — when a DB service was provisioned — its persistence row with one
+  `archascode targets set` invocation each:
+  ```bash
+  archascode targets set <env> hosting provider=railway project=<project> environment=<env> service=<appService> reconcile=true verify=true
+  archascode targets set <env> persistence provider=railway service=<dbService> reconcile=true verify=true
+  ```
+  The row shape (which keys are legal, which are required) is enforced by
+  the verb's grammar, not restated here. This closes the class of run
+  that provisions a service but never records the row: a missed
+  invocation self-heals on the next run's `targets adopt`.
 - **`railway service source connect` stays banned — wrong layer, not a
   dead carrier.** Do not attempt it as a way to set or change a
   per-environment branch: it operates at the *service* level, and is
@@ -1109,7 +1416,8 @@ rather than restating it.
   Both arms ride the **already-confirmed** creation — no separate
   confirmation needed, since creating this environment on this branch *is*
   the confirmed intent. Verify either arm by read-back; only a
-  **post-converge** mismatch ⚠s (Step 7.4 arm 1). **Branch-change writes
+  **post-converge** mismatch ⚠s (Step 7's deployed-branch verification,
+  item 3, arm 1). **Branch-change writes
   auto-redeploy.** The patch commit triggers a build from the new branch
   on its own (~10 s, spike-observed) — do not immediately declare "not
   observed" from a single read. Poll `deployment list` over **~60
@@ -1128,9 +1436,13 @@ For each in-scope environment, once its services exist:
   since the container now goes direct to uvicorn.
 - **Variable writes batch, with `--skip-deploys`.** `railway variable
   set` accepts multiple KV pairs per call and a `--skip-deploys` flag;
-  when wiring several variables, batch them and pass `--skip-deploys` on
-  all but the final write, so configuration doesn't trigger a rebuild
-  per variable.
+  batch several variables together. For a **memory** environment, pass
+  `--skip-deploys` on all but the final write, so configuration doesn't
+  trigger a rebuild per variable. For a **SQL** environment, pass
+  `--skip-deploys` on **every** write in the batch, with no final
+  exception — the pre-deploy hook write that follows the batch
+  (Pre-deploy schema apply, above) is what carries the configuring
+  deploy for these environments.
 - **Postgres wiring is one reference variable**:
   `<urlKey>=${{<dbServiceName>.DATABASE_URL}}` (the private-network URL),
   set on the app service, where `<urlKey>` is the spec's declared
@@ -1149,8 +1461,7 @@ For each in-scope environment, once its services exist:
     **themselves** into the gitignored `.env.<env>` (or name an existing
     untracked file that already holds them). The skill then reads that
     file to set the Railway variables — values are piped straight from
-    the file, never printed into the transcript — and the same file
-    doubles as Step 7's laptop-side apply seed. If the user prefers to
+    the file, never printed into the transcript. If the user prefers to
     paste values into chat anyway, that's their call; the skill never
     *asks* for a paste and never re-prints a value it received.
 - **`APP_DATA=ephemeral`** — set **only** when the environment's
@@ -1175,67 +1486,47 @@ For each in-scope environment, once its services exist:
   one satisfies this step. `railway domain` runs **only** when none
   exists yet (its behavior on re-invocation is deliberately not relied
   on).
-- **TCP proxy**: `railway tcp-proxy list --service <db-service>
-  --environment <name> --json` first per provisioned DB service; an
-  existing proxy satisfies this step. Otherwise `railway tcp-proxy create
-  --port 5432 --service <db-service> --environment <name> --json` on
-  that DB service — one proxy per provisioned DB service instance.
+- **The pre-deploy hook write runs last, after the variable batch above**
+  (mechanics single-homed in Pre-deploy schema apply, above — this
+  bullet only sequences it). Its triggered deploy boots with every
+  variable this step wired already present, so `migrate` runs with a
+  fully configured environment. The guarantee this establishes: from
+  the hook write onward, every deployment of this environment runs
+  `migrate` pre-traffic — deliberately **not** "one deploy per
+  creation" (the platform still fires several deploys during creation;
+  Context, above). If the hook line was **declined or withheld** for a
+  created SQL environment, issue a plain
+  ```bash
+  railway redeploy --yes --environment <env> --service <appService> --json
+  ```
+  after the batch, so the committed variables reach a running
+  deployment instead of stranding the environment on the unconfigured
+  `add`-build; that environment's consequence is then schema-only
+  (Pre-deploy schema apply's `schema` column states, below). A
+  **withheld** hook (BYO values not yet supplied) takes this same
+  configuring-redeploy treatment as a decline, for the same reason:
+  either way the variables need a running deployment to reach.
 
-### Step 7 — schema apply and smoke check
+### Step 7 — smoke check and hook verification
 
-**For each in-scope SQL environment:**
-
-1. **Seed the local, gitignored `.env.<env>`.** Before writing, run `git
-   check-ignore -q .env.<name>`. If it is **not** ignored, **stop the seed
-   step** for that environment and point at `/archascode:init` (it writes
-   the ignore rules) rather than create a trackable secret file — this is
-   a stop, not a warning.
-   - Provisioned-postgres environments: set the declared `url` key to the
-     **public** connection URL, by either of two co-primary paths — a
-     fresh `add --database postgres` service typically has **no**
-     `DATABASE_PUBLIC_URL` (observed 2 of 2 live), so composition is the
-     common case, not an edge:
-     - `DATABASE_PUBLIC_URL`, read from the DB service's own variables
-       via `--json`, when it exists;
-     - otherwise compose it from the same variable read:
-       `RAILWAY_TCP_PROXY_DOMAIN` / `RAILWAY_TCP_PROXY_PORT` plus
-       `PGUSER` / `POSTGRES_PASSWORD` / `PGDATABASE` — **URL-encoding
-       the credentials** when composing the connection string.
-   - BYO environments: the spec-declared keys, from the coordinates the
-     user already placed in `.env.<env>` (Step 6's collection channel —
-     the same file serves as this seed). If the user declined to supply
-     laptop-reachable coordinates, schema apply is **skipped, with a
-     report line saying so** — not treated as a failure.
-   - Every mode: values are piped directly from `--json` output or the
-     file into place. **No secret value is ever echoed into the
-     transcript** — this hygiene rule holds everywhere in this skill,
-     not just here.
-2. **Schema apply, with a zero-cuts arm.** `archascode db apply --env
-   <name>` hard-fails on a project with no sealed cuts, and a first-ever
-   SQL deploy is exactly that. So: check `spec/locked/**/schema/
-   migrations/` for existing cuts.
-   - **No cuts yet**: offer to run `archascode cut-schema-migration` —
-     naming plainly that it is a **network verb needing archascode-cloud
-     login** (relay `/archascode:login` on a 401) — then **stop
-     for the user to commit the cut**. `db apply` refuses uncommitted
-     cuts, and this skill never commits on the user's behalf.
-   - **Cuts present and committed**: `archascode db apply --env <name>`
-     is cloud-free. A fresh database receives the full chain
-     (empty-but-existing is adoptable); an existing one gets the
-     unapplied tail; `data: ephemeral` environments proceed under the
-     existing stderr nudge. In-flight changes beyond the last cut get
-     `/archascode:db`'s own advisory posture — offer its `--dry-run`
-     preflight (itself a cloud call) or proceed.
-   - **Environment-shadowing hygiene**: a pre-set shell variable
-     out-ranks `.env.<env>` (the per-env dotenv load-order precedence), so a stray exported
-     connection variable could silently point the apply at the wrong
-     database. Before applying, scrub the spec-declared connection keys
-     from the spawned process's environment, or verify the resolved
-     target matches the seed.
+**The probe family gates on verify scope.** The whole data-plane probe
+family below — `/health`, the synthetic-Origin Explorer probe, and the
+auth legs — runs only for environments in **verify scope** (Run scope,
+above; a `verify: false` hosting target is the user's declared quiet for
+that environment, never something this skill suggests). A
+granted-but-structurally-impossible probe still runs whatever legs it
+can and reports the rest `unverified` with the reason, exactly as
+today — grant is consent, not capability, and the no-domain exclusion
+and mint-degrade annotations (Step 8) are unchanged. **The hook write and
+its verification (item 2, below) are reconcile-scope actions**, unaffected
+by the verify grant — both reads are control-plane (`environment config`,
+`deployment list`), the same reads Step 1 already performs for every
+in-scope environment, so neither the hook write nor the `schema` column
+waits on `verify: true`.
 
 **For every in-scope environment** (memory environments included):
 
-3. **Smoke check**: `GET /health` on the environment's generated domain.
+1. **Smoke check**: `GET /health` on the environment's generated domain.
    This probe is registered unprefixed and unauthenticated on every
    generated app (`api.base_path` only re-roots entity/application
    routers), so this step needs no auth, no `base_path`
@@ -1258,10 +1549,13 @@ For each in-scope environment, once its services exist:
    **Poll rule.** After an Explorer-access-posture enable/disable
    on an environment that already had a running deployment, poll
    up to ~120 s before invoking the fallback/⚠ arms there. For an
-   environment created this run, the variable rides Step 6's batch's final
-   deploy (overlapping the first full build — unbounded), so the probe
-   defers to `deployment list` status and never ⚠s while a deployment is
-   in flight.
+   environment created this run, the variable rides Step 6's SQL-batch
+   deploy — the pre-deploy hook write's triggered deploy, or the
+   decline arm's plain `redeploy` (Pre-deploy schema apply, above) — or,
+   for a memory environment, the batch's own final-write deploy
+   (overlapping the first full build — unbounded), so the probe defers
+   to `deployment list` status and never ⚠s while a deployment is in
+   flight.
 
    **A third, auth leg** runs for every in-scope environment **with a
    domain** whose resolved adapter verifies (`jwt_bearer` or `api_key` —
@@ -1321,10 +1615,30 @@ For each in-scope environment, once its services exist:
      respects the existing poll rule above before ⚠ing (variables
      apply on the write's redeploy).
 
-   Item 4 below and Step 7.1's SQL-scoped `.env.<env>` seed loop are
-   **untouched** by this leg — the `AUTH_API_KEY` seed is a Deployed
-   auth posture write site, not a 7.1 scope tweak.
-4. **Deployed-branch verification**, two arms scoped by whether this run
+   Item 3 below and the `AUTH_API_KEY` seed (Deployed auth posture,
+   above — this skill's only skill-initiated `.env.<env>` write site,
+   beside the user-driven Step 6 BYO channel) are **untouched** by this
+   leg.
+2. **Hook verification.** Two surfaces, mirroring the branch mapping's
+   own config-truth/deploy-truth split (Step 5's "Branch mapping
+   writes"):
+   - **Config-truth**: `environment config --json` — the hook is set,
+     with the same normalization the classification above applies
+     (unwrap a one-element array, compare the single string).
+   - **Deploy-truth**: the latest deployment's manifest
+     (`deployment list --json` →
+     `meta.serviceManifest.deploy.preDeployCommand` — a **dense**
+     surface, `null` explicit when unset) plus that deployment's
+     status.
+
+   A **SUCCESS** deployment whose manifest carries the hook **is** the
+   schema-applied proof — no log read, no new grant. Reading the
+   deployment's build/runtime logs needs the full deployment UUID and
+   is not granted; it stays a user-side diagnostic pointed at from the
+   report on a failure — surface the deployment ID and name the
+   dashboard's log viewer, never invoke a log-reading command from
+   this skill.
+3. **Deployed-branch verification**, two arms scoped by whether this run
    wrote the mapping (rescoped per Step 5's "Branch mapping writes" /
    converge semantics — the `dashboard-configured` informational lane from
    earlier versions is gone: a non-default branch is now the **adopted
@@ -1352,10 +1666,37 @@ branch — shown as **deploy-truth** (Step 7's read-back), annotated
 `config: <b> (not yet deployed)` when config-truth differs from
 deploy-truth, and `(service default; no per-env mapping)` for an
 environment with no adopted branch mapping (Branch posture); ⚠-marked
-only on a same-run, post-converge write mismatch (Step 7.4 arm 1) —
-applied-cut count (or `skipped` / `BYO` / `memory` / `blocked
-(permissions)` / `blocked (branch)` as applicable) — plus any BYO/skip
-notes from Step 7.
+only on a same-run, post-converge write mismatch (Step 7's
+deployed-branch verification, item 3, arm 1).
+
+The table also gains a **schema** column (Pre-deploy schema apply,
+above, for the classification and write mechanics; Step 7 item 2 for
+the verification this column reports). Its state set is **total**:
+
+- `applied (pre-deploy)` — the latest deployment is SUCCESS and its
+  manifest carries the owned hook;
+- `set (not yet deployed)` — config-truth carries the owned hook, but
+  the latest **completed** deployment's manifest does not and nothing
+  is currently in flight (an adopted hook that predates classification
+  but postdates its last deployment, or a dashboard-set one) — never
+  forced by a same-value write, organic or converged only;
+- `pending (deploying)` — a deployment is in flight (the existing poll
+  rule applies before any ⚠);
+- `⚠ deploy failed (pre-deploy)` — the latest deployment is FAILED with
+  the hook in its manifest: the gate fired. The row names the previous
+  deployment as still serving and points at that deployment's logs in
+  the Railway dashboard;
+- `hook: hand-managed` — the classification's third state: schema
+  application is whatever the user's command does; reported, no
+  judgment;
+- `hook: absent (declined)` — the proposal was declined this run; the
+  row names the consequence (no deploy-time schema apply) and
+  re-proposes next run;
+- `hook: withheld (BYO values unset)` — the BYO gate; re-proposed once
+  the declared connection keys appear platform-side;
+- `memory` — no hook exists or is proposed for this environment;
+- `blocked (cuts)` / `blocked (branch)` / `blocked (targets)` /
+  `blocked (permissions)` — as applicable, per their owning sections.
 
 The table also gains an **explorer** column, whose primary value is
 **config-truth** (Explorer access posture's three states: `enabled` /
@@ -1410,16 +1751,37 @@ interjection, Permission posture) or any work was parked as `blocked
 (permissions)`, the report recommends re-invoking `/archascode:deploy`
 to pick it up.
 
+**Targets-derived report content is skew-only** — there is no full
+targets column; the report only ever names a targets state where skew
+needs naming (Run scope, Coherence checks, above):
+
+- **Out-of-scope-on-Railway informational lines** (an environment
+  present on the platform but declared out of reconcile scope) re-print
+  alongside the surplus pointers above, for as long as the condition
+  holds.
+- **`blocked (targets)`** joins the `schema` column's state set (above)
+  for any environment parked by a coherence finding, with the fix
+  pointer (edit `spec/deploy_targets.yml` or the spec) named in the
+  row.
+- **File-update offers** (an adopted key's platform-side rename, or any
+  other adopted-key skew — the per-key write discipline, Step 3, above)
+  appear as their own **separately-confirmed** lines, the same pattern
+  as the branch-, Explorer-, and auth-converge lines.
+
 ## What this skill does NOT do
 
 - **Write any tracked repo file** — no `railway.json`, no state or ID
   cache file, no spec edits, no `.gitignore` edits. The only local write
-  this skill makes is the gitignored `.env.<env>` seed, with one licensed
-  exception: the Permission posture settings-rule offer may write
+  this skill makes is the gitignored `.env.<env>` seed, with two licensed
+  exceptions: the Permission posture settings-rule offer may write
   `.claude/settings.json` (project-tracked scope), only under the user's
-  explicit choice on that AskUserQuestion, and never commits it.
-- **Commit anything, ever** — the zero-cuts arm stops for the user to
-  commit the sealed cut themselves.
+  explicit choice on that AskUserQuestion, and never commits it; and
+  confirmed writes to `spec/deploy_targets.yml` (via the ordinary editing
+  tools, never bash — adoption, creation, and adopted-key updates only,
+  per the per-key write discipline, Step 3, above) — never silent, and
+  never a grant written without a confirmation.
+- **Commit anything, ever** — the `blocked (cuts)` park (Step 3, above)
+  stops for the user to commit and push the sealed cut themselves.
 - **Create branches** — repo topology has another owner.
 - **Echo secret values into the transcript** — BYO credentials,
   connection URLs, variable values. This rule bans *re-printing* values
@@ -1446,9 +1808,10 @@ to pick it up.
   hand; this skill
   carries no detect-and-heal machinery for them.
 - **Run the wider chain on the user's behalf** — no `/archascode:apply`,
-  no render, no `/archascode:init`. This skill's own `db apply` call and
-  optional `cut-schema-migration` offer (Step 7) are the only named
-  exceptions, and each is its own explicit skill step, not an implicit one.
+  no render, no `/archascode:init`. The optional `cut-schema-migration`
+  offer (Step 3's `blocked (cuts)` park, above) is the only named
+  exception, and it is its own explicit stop-and-offer, not an implicit
+  call.
 - **Engineer around a permission denial** — no re-phrasing a denied
   command, no re-routing it through another tool, no other workaround.
   A denial is stopped and handed to the fallback lane (Permission
@@ -1465,6 +1828,29 @@ to pick it up.
 - **Print a generated or read auth key value, copy a key between
   environments, or regenerate an existing key unasked** — the
   absence properties (Deployed auth posture, above).
+- **Write `verify: false` to silence a degrade** — a structural
+  degrade (no domain, a Development-only mint, and the like) stays an
+  *annotation within* a grant; setting `verify: false` for that reason
+  is the user's declared quiet to give, never this skill's move to make
+  on their behalf.
+- **Auto-repair or auto-delete a `spec/deploy_targets.yml` row** — every
+  coherence finding (Step 3, above) is reported with an offer; none is
+  ever resolved without a confirmation.
+- **Reconcile the platform *toward* `spec/deploy_targets.yml`** — the
+  file is declared intent and interview memory, never state; the
+  platform stays the record of actuals, and skew between the two is
+  reported and converged only under the existing confirm discipline,
+  never treated as an instruction to overwrite platform reality.
+- **Claim once-per-deploy or multi-replica migration safety for the
+  pre-deploy hook** — that behavior is unverified, and neither this
+  skill's text nor its report states it (Pre-deploy schema apply,
+  above).
+- **Attempt to clear `preDeployCommand`** — no verified CLI path exists;
+  a removal request gets an informational dashboard pointer, never an
+  attempted write (Pre-deploy schema apply, above).
+- **Rewrite a hand-managed pre-deploy hook** — reported as fact; a
+  change request is stop-and-explain, the same posture as a
+  hand-managed CORS family (Pre-deploy schema apply, above).
 
 ## Failure modes
 
@@ -1482,10 +1868,10 @@ to pick it up.
 | Non-GitHub or ambiguous multi-remote                          | Stop-and-explain; no guess at a slug.                                                               |
 | SQL backend switch detected                                   | Report as a hand-edit case (backend exclusivity); stop, never migrate.                              |
 | A declared environment's name looks like a rename of an existing one | No detection: the new name proceeds through the normal create flow; the old name is reported as an orphan line with the dashboard pointer, noting data does not move. |
-| Zero sealed cuts on first SQL deploy                          | Offer `archascode cut-schema-migration` (network verb, login relay on 401); stop for user to commit. |
+| Zero committed cuts for an in-scope SQL environment's backend on its mapped branch | Park that environment `blocked (cuts)`; offer `archascode cut-schema-migration` (network verb, login relay on 401); stop for the user to commit and push, then re-run. |
 | `.env.<env>` would be a tracked file                          | Stop the seed step for that environment; point at `/archascode:init`'s ignore rules.                |
-| BYO coordinates declined                                      | Skip schema apply for that environment, with a report line — not a failure.                         |
-| `db apply` fails                                              | Surface the CLI's own message verbatim; do not retry or fix on the user's behalf.                    |
+| Pre-deploy hook proposed for a BYO environment before its connection keys exist platform-side | Report `hook: withheld (BYO values unset)`; re-propose automatically once the keys appear — not a failure. |
+| Deployment FAILED with the pre-deploy hook in its manifest      | Report `⚠ deploy failed (pre-deploy)`; the previous deployment is still serving; point at that deployment's logs in the Railway dashboard — do not retry or fix on the user's behalf. |
 | `/health` unreachable                                         | Report the environment as unreachable in the final table; do not retry indefinitely.                |
 | Permission denial (classifier or declined prompt) on any command | Stop that action (never re-phrase or re-route); offer the verbatim !-prefixed one-liner and the settings-rule route (applies next session); park dependent steps as blocked (permissions). |
 | Post-`add`/duplicate-override skew survives the converge attempt | ⚠ row in the final report naming both branches and the manual dashboard fix; never silently absorbed. |
@@ -1499,6 +1885,11 @@ to pick it up.
 | jwt environment with no `AUTH_JWKS_URL`/`AUTH_ISSUER` value source anywhere (platform and local both absent) | Park that environment `blocked (auth)`; fix = run `/archascode:auth`, then re-run `/archascode:deploy`; every-in-scope-environment park → report and stop rather than an all-parked plan. |
 | Auth value skew (`AUTH_*` differs between local `.env.<env>` and the platform) | Always reported (⚠ skew); converge offered only as its own separately-confirmed line, never bundled; declining leaves a re-shown (not re-asked) report line. |
 | Explicit auth-wiring decline (`$ARGUMENTS` steering or a typed mid-run request) | Report `unset (declined)` with the runtime consequence named (jwt: token verification will 500; api_key: key-bearing requests will 500). |
+| An `archascode targets` verb exits non-zero (broken `spec/deploy_targets.yml`, a digest mismatch, a grammar refusal) | Stop, surfacing the verb's own message verbatim — it already names the file, the expected version, or the rule violated; absence of the file entirely is legal and produces no refusal. |
+| Scoped run names an environment whose hosting target withholds `reconcile`, or names a provider this skill does not drive | Stop naming the target row and the file edit that would grant it; explicit run-time intent never outranks declared consent. |
+| Coherence finding against `spec/deploy_targets.yml` (renamed/deleted spec env, memory/`noop`/`api_key` flip under a target, `db_runtime` vs. persistence-target-kind mismatch, platform hosting beside a `local`/`docker` persistence target, two envs' persistence targets naming one instance under conflicting `data:`) | Park that environment `blocked (targets)`, per `archascode targets check`'s finding; report with an offer that points at the plugin editor or a hand edit, never auto-repaired or auto-deleted. |
+| Change requested against a hand-managed pre-deploy hook          | Stop-and-explain: the skill never merges, overwrites, or reasons about a user's schema-apply command; hand it back with the value found. |
+| Removal requested for the pre-deploy hook                        | Informational line naming the Railway dashboard as the place to clear it, plus the consequence (no deploy-time schema apply); no CLI path is attempted. |
 
 No retries beyond what is stated above. The user re-invokes after
 addressing whatever a stop pointed at.
@@ -1541,3 +1932,11 @@ addressing whatever a stop pointed at.
   replacing the flat rule; a positive jwt smoke tier (a real minted
   token, not just the negative matrix) is possible only if a future
   provider skill records a smoke credential this skill may read.
+- **Pre-deploy hook follow-ons** — once-per-deploy vs. per-replica
+  execution and multi-replica migration safety need their own
+  verification before this skill claims either; a Railway CLI update
+  that adds a real clearing path for `preDeployCommand` would let a
+  confirmed disable lane replace the current dashboard-only pointer;
+  and a second deploy platform gets its own pre-deploy-hook equivalent
+  verified from scratch before this vocabulary generalizes past
+  Railway.

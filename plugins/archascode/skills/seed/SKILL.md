@@ -249,7 +249,7 @@ Then write `seeds/manifest.json` with:
     "<Entity>": "<16-char hex from compute_entity_fingerprint(<E>State)>",
     ...
   },
-  "portBinding": "<the active port binding — read from spec environments[default_environment].port_binding, or 'memory' if not declared>",
+  "portBinding": "<the active port binding — read from .archascode/environments.json, the default_environment's entry's portBinding>",
   "createdAt": "<datetime.now().isoformat()>",
   "loadOrder": ["<entity1>", "<entity2>", ...]
 }
@@ -285,6 +285,7 @@ project's venv and its `src.*` imports resolve):
 
 ```python
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 from src.adapter.persistence._codec import (
@@ -293,6 +294,19 @@ from src.adapter.persistence._codec import (
 )
 
 schema_ts = _compute_schema_identifier(Path.cwd())
+
+# portBinding comes from .archascode/environments.json, not the spec — it is
+# the engine-derived name for the default environment's resolved adapter
+# picks. Absence means "never rendered"; stop rather than guessing 'memory'.
+env_path = Path(".archascode/environments.json")
+if not env_path.exists():
+    sys.exit(".archascode/environments.json missing — run /archascode:apply first")
+env_table = json.loads(env_path.read_text())
+default_env = env_table["defaultEnvironment"]
+entry = env_table["environments"].get(default_env)
+if entry is None:
+    sys.exit(f"environments.json has no entry for default environment {default_env!r} — render first")
+port_binding_name = entry["portBinding"]
 
 # load_order is the topo-sorted list built in step 3.
 fingerprints = {}

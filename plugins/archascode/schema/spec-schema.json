@@ -5,14 +5,14 @@
   "description": "JSON Schema for validating architecture.yml - the unified specification file that serves as the source of truth for domain, application, and API configuration.\n\nThis schema combines domain modeling (entities, value objects, enums) with application concerns (custom ports, use cases) and API configuration. Layer-specific YAML files (domain.yml, application.yml, api.yml) are generated from this spec.\n",
   "type": "object",
   "required": [
-    "domain"
+    "domain",
+    "schema_version"
   ],
   "properties": {
     "schema_version": {
       "type": "string",
-      "description": "Schema version for this specification format (e.g., '1.0'). Used for migration and compatibility checking.",
-      "pattern": "^[0-9]+\\.[0-9]+$",
-      "default": "1.0"
+      "description": "Schema version for this specification format. Exactly one version is supported: '3.0' — an exact-match handshake, never a compatibility selector. Required; a missing, older, newer, or malformed value fails validation with a self-describing migration message.",
+      "const": "3.0"
     },
     "metadata": {
       "type": "object",
@@ -204,16 +204,9 @@
         }
       }
     },
-    "port_bindings": {
-      "type": "object",
-      "description": "Optional named port bindings (formerly 'bindings'/'profiles'). Each port binding maps every entity's repo slot to one of its declared adapters at boot via APP_PORT_BINDING. Reserved names: 'memory', plus one auto-emitted name per declared, registered persistence backend (e.g. 'sqlserver', 'postgres').",
-      "additionalProperties": {
-        "$ref": "#/definitions/PortBinding"
-      }
-    },
     "environments": {
       "type": "object",
-      "description": "Named deployment-target environments. Each environment selects one port binding and declares two axes: compute (docker/external) and data (ephemeral/protected).",
+      "description": "Named deployment-target environments. Each environment picks its adapters (persistence, auth) and declares two axes: db_runtime (docker/external) and data (ephemeral/protected).",
       "additionalProperties": {
         "$ref": "#/definitions/Environment"
       }
@@ -237,6 +230,372 @@
     }
   },
   "additionalProperties": false,
+  "allOf": [
+    {
+      "description": "An environment may pick persistence: sqlserver only when adapters.persistence.sqlserver is declared.",
+      "if": {
+        "not": {
+          "properties": {
+            "adapters": {
+              "properties": {
+                "persistence": {
+                  "required": ["sqlserver"]
+                }
+              },
+              "required": ["persistence"]
+            }
+          },
+          "required": ["adapters"]
+        }
+      },
+      "then": {
+        "properties": {
+          "environments": {
+            "additionalProperties": {
+              "not": {
+                "properties": {
+                  "adapters": {
+                    "properties": {
+                      "persistence": { "const": "sqlserver" }
+                    },
+                    "required": ["persistence"]
+                  }
+                },
+                "required": ["adapters"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "An environment may pick persistence: postgres only when adapters.persistence.postgres is declared.",
+      "if": {
+        "not": {
+          "properties": {
+            "adapters": {
+              "properties": {
+                "persistence": {
+                  "required": ["postgres"]
+                }
+              },
+              "required": ["persistence"]
+            }
+          },
+          "required": ["adapters"]
+        }
+      },
+      "then": {
+        "properties": {
+          "environments": {
+            "additionalProperties": {
+              "not": {
+                "properties": {
+                  "adapters": {
+                    "properties": {
+                      "persistence": { "const": "postgres" }
+                    },
+                    "required": ["persistence"]
+                  }
+                },
+                "required": ["adapters"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "An environment may pick auth: jwt_bearer only when adapters.auth.id is jwt_bearer.",
+      "if": {
+        "not": {
+          "properties": {
+            "adapters": {
+              "properties": {
+                "auth": {
+                  "properties": {
+                    "id": { "const": "jwt_bearer" }
+                  },
+                  "required": ["id"]
+                }
+              },
+              "required": ["auth"]
+            }
+          },
+          "required": ["adapters"]
+        }
+      },
+      "then": {
+        "properties": {
+          "environments": {
+            "additionalProperties": {
+              "not": {
+                "properties": {
+                  "adapters": {
+                    "properties": {
+                      "auth": { "const": "jwt_bearer" }
+                    },
+                    "required": ["auth"]
+                  }
+                },
+                "required": ["adapters"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "An environment may pick auth: api_key only when adapters.auth.id is api_key.",
+      "if": {
+        "not": {
+          "properties": {
+            "adapters": {
+              "properties": {
+                "auth": {
+                  "properties": {
+                    "id": { "const": "api_key" }
+                  },
+                  "required": ["id"]
+                }
+              },
+              "required": ["auth"]
+            }
+          },
+          "required": ["adapters"]
+        }
+      },
+      "then": {
+        "properties": {
+          "environments": {
+            "additionalProperties": {
+              "not": {
+                "properties": {
+                  "adapters": {
+                    "properties": {
+                      "auth": { "const": "api_key" }
+                    },
+                    "required": ["auth"]
+                  }
+                },
+                "required": ["adapters"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "An environment may pick auth: oauth2 only when adapters.auth.id is oauth2.",
+      "if": {
+        "not": {
+          "properties": {
+            "adapters": {
+              "properties": {
+                "auth": {
+                  "properties": {
+                    "id": { "const": "oauth2" }
+                  },
+                  "required": ["id"]
+                }
+              },
+              "required": ["auth"]
+            }
+          },
+          "required": ["adapters"]
+        }
+      },
+      "then": {
+        "properties": {
+          "environments": {
+            "additionalProperties": {
+              "not": {
+                "properties": {
+                  "adapters": {
+                    "properties": {
+                      "auth": { "const": "oauth2" }
+                    },
+                    "required": ["auth"]
+                  }
+                },
+                "required": ["adapters"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "No entity may pick persistence: sqlserver unless adapters.persistence.sqlserver is declared.",
+      "if": {
+        "not": {
+          "properties": {
+            "adapters": {
+              "properties": {
+                "persistence": {
+                  "required": ["sqlserver"]
+                }
+              },
+              "required": ["persistence"]
+            }
+          },
+          "required": ["adapters"]
+        }
+      },
+      "then": {
+        "properties": {
+          "domain": {
+            "properties": {
+              "entities": {
+                "additionalProperties": {
+                  "not": {
+                    "properties": {
+                      "persistence": { "const": "sqlserver" }
+                    },
+                    "required": ["persistence"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "No entity may pick persistence: postgres unless adapters.persistence.postgres is declared.",
+      "if": {
+        "not": {
+          "properties": {
+            "adapters": {
+              "properties": {
+                "persistence": {
+                  "required": ["postgres"]
+                }
+              },
+              "required": ["persistence"]
+            }
+          },
+          "required": ["adapters"]
+        }
+      },
+      "then": {
+        "properties": {
+          "domain": {
+            "properties": {
+              "entities": {
+                "additionalProperties": {
+                  "not": {
+                    "properties": {
+                      "persistence": { "const": "postgres" }
+                    },
+                    "required": ["persistence"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "No entity may combine persistence: memory with a config-bearing (eject/locked) adapters.sqlserver block when sqlserver is the declared backend. A repo_port_extensions-implied case is not expressible in this schema shape and is enforced by the model alone.",
+      "if": {
+        "properties": {
+          "adapters": {
+            "properties": {
+              "persistence": {
+                "required": ["sqlserver"]
+              }
+            },
+            "required": ["persistence"]
+          }
+        },
+        "required": ["adapters"]
+      },
+      "then": {
+        "properties": {
+          "domain": {
+            "properties": {
+              "entities": {
+                "additionalProperties": {
+                  "not": {
+                    "allOf": [
+                      { "properties": { "persistence": { "const": "memory" } }, "required": ["persistence"] },
+                      {
+                        "properties": {
+                          "adapters": {
+                            "properties": {
+                              "sqlserver": {
+                                "anyOf": [
+                                  { "required": ["eject"] },
+                                  { "required": ["locked"] }
+                                ]
+                              }
+                            },
+                            "required": ["sqlserver"]
+                          }
+                        },
+                        "required": ["adapters"]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "Mirrors the sqlserver conflict-rule conditional above, for the postgres backend.",
+      "if": {
+        "properties": {
+          "adapters": {
+            "properties": {
+              "persistence": {
+                "required": ["postgres"]
+              }
+            },
+            "required": ["persistence"]
+          }
+        },
+        "required": ["adapters"]
+      },
+      "then": {
+        "properties": {
+          "domain": {
+            "properties": {
+              "entities": {
+                "additionalProperties": {
+                  "not": {
+                    "allOf": [
+                      { "properties": { "persistence": { "const": "memory" } }, "required": ["persistence"] },
+                      {
+                        "properties": {
+                          "adapters": {
+                            "properties": {
+                              "postgres": {
+                                "anyOf": [
+                                  { "required": ["eject"] },
+                                  { "required": ["locked"] }
+                                ]
+                              }
+                            },
+                            "required": ["postgres"]
+                          }
+                        },
+                        "required": ["adapters"]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "definitions": {
     "DomainService": {
       "type": "object",
@@ -352,6 +711,11 @@
         "derived_attributes": {
           "$ref": "#/definitions/DerivedAttributeMap",
           "description": "Computed read-only projections: a pure expression in the same restricted Python dialect as invariants over the entity's own stored attributes or sibling derived attributes (same-entity, acyclic), rendered as a @property on <E>State and surfaced in <E>DTO only (never in inputs, SQL, or snapshots)."
+        },
+        "persistence": {
+          "type": "string",
+          "enum": ["memory", "sqlserver", "postgres"],
+          "description": "The routing pick: which backend this entity persists to. Absent means the project's declared backend (or memory, if none is declared). Legal values are 'memory' or the single declared backend — naming any other backend fails validation."
         },
         "adapters": {
           "$ref": "#/definitions/AdapterMap",
@@ -1104,54 +1468,37 @@
         }
       }
     },
-    "PortBinding": {
+    "Environment": {
       "type": "object",
-      "description": "Named port binding (formerly 'Binding'/'profile'). `default` is the adapter every entity binds to unless overridden; `overrides` pins specific entities to a different declared adapter. `app_adapters` selects app-level adapters per port binding.",
+      "description": "Named deployment-target environment. Selects its adapters (persistence, auth) and declares two axes: db_runtime (who owns the database runtime in the dev loop) and data (how protected the data is).",
       "additionalProperties": false,
-      "required": ["default"],
       "properties": {
-        "default": {
-          "type": "string",
-          "description": "Adapter id every entity binds to by default. Must be an adapter declared on at least one entity (or 'memory'). Entities that did not declare it fall back to 'memory'."
-        },
-        "overrides": {
+        "adapters": {
           "type": "object",
-          "description": "Per-entity adapter override. Keys are entity names; values are adapter ids the entity declared on its own adapters: block (or 'memory').",
-          "additionalProperties": { "type": "string" }
-        },
-        "app_adapters": {
-          "type": "object",
-          "description": "Per-port-binding app-level adapter selections. v1 carries 'auth'. When unset, top-level 'adapters.auth.id' is used; if neither is set, 'noop' is the implicit default.",
+          "description": "This environment's adapter picks. Both slots are optional; an absent slot resolves to the spec's declared adapter for that slot (an environment is prod-truthful by default and opts out into a fake explicitly).",
           "additionalProperties": false,
           "properties": {
+            "persistence": {
+              "type": "string",
+              "enum": ["memory", "sqlserver", "postgres"],
+              "description": "The environment's persistence pick: 'memory', or a persistence backend declared under adapters.persistence. Coupled at the root level: picking a backend here requires that backend to be declared."
+            },
             "auth": {
               "type": "string",
               "enum": ["noop", "jwt_bearer", "api_key", "oauth2"],
-              "description": "App-level auth adapter id for this port binding."
+              "description": "The environment's auth adapter pick: 'noop', or the adapter declared at adapters.auth.id. Coupled at the root level: picking a verifying adapter here requires that adapter to be the declared one."
             }
           }
-        }
-      }
-    },
-    "Environment": {
-      "type": "object",
-      "description": "Named deployment-target environment. References a port binding and declares two axes: compute (who owns the database lifecycle) and data (how protected the data is).",
-      "additionalProperties": false,
-      "required": ["port_binding"],
-      "properties": {
-        "port_binding": {
-          "type": "string",
-          "description": "Name of the port binding this environment uses. Must reference a known port-binding name (auto names 'memory'/'sqlserver' or a user-declared port binding)."
         },
-        "compute": {
+        "db_runtime": {
           "type": "string",
           "enum": ["docker", "external"],
-          "description": "Who owns the persistence infrastructure lifecycle. 'docker' means `aac up` runs docker compose; 'external' means the database is brought into existence by something else. Forbidden on memory-only port bindings; required on non-memory port bindings."
+          "description": "Who owns the database runtime in the dev loop. 'docker' means `aac up` runs the database in docker compose; 'external' means the database is brought into existence by something else. Forbidden on memory-only port bindings; required on non-memory port bindings."
         },
         "data": {
           "type": "string",
           "enum": ["ephemeral", "protected"],
-          "description": "Risk profile of the data. 'ephemeral' (wipeable; snapshot/seed endpoints work) or 'protected' (load-bearing; snapshot endpoints return 403). Defaults to 'ephemeral' for memory and compute: docker; required explicitly for compute: external."
+          "description": "Risk profile of the data. 'ephemeral' (wipeable; snapshot/seed endpoints work) or 'protected' (load-bearing; snapshot endpoints return 403). Defaults to 'ephemeral' for memory and db_runtime: docker; required explicitly for db_runtime: external."
         }
       }
     }

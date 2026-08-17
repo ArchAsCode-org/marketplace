@@ -31,6 +31,9 @@ gets its own verb so the destructiveness is legible at the call site.
 - `spec/.archascode/positions.json` — plugin graph layout (editor state,
   a different `.archascode` dir from the manifest).
 - `pyproject.toml`, `.venv/` — owned by `/archascode:init`, untouched here.
+- `spec/deploy_targets.yml` — deploy-layer declared intent and grants
+  (consent-bearing, non-regenerable). Only `archascode clean --hard`
+  deletes it.
 
 ## Preconditions
 

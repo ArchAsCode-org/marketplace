@@ -1,4 +1,4 @@
-schema_version: "1.0"
+schema_version: "3.0"
 
 metadata:
   name: derived-attributes
@@ -38,10 +38,9 @@ adapters:
 
 environments:
   dev:
-    port_binding: memory
+    adapters: {persistence: memory}
   prod:
-    port_binding: sqlserver
-    compute: external
+    db_runtime: external
     data: protected
 
 default_environment: dev

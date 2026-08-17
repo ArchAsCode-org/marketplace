@@ -108,12 +108,31 @@ The engine validates all of this; `archascode validate` (below) catches
 anything this summary gets wrong.
 
 - **Top level**: only `domain` is required. Emit `schema_version:
-  "1.0"`, `metadata` (`name` kebab-cased from the PRD title,
+  "3.0"`, `metadata` (`name` kebab-cased from the PRD title,
   `version: "0.1.0"`, `description`), `domain`, and `api` when auth is
-  on. **Omit `adapters`, `port_bindings`, and `environments`
-  entirely** — the engine defaults to the memory binding, which is the
-  fastest path to a running app; switching to a real database
-  (sqlserver or postgres) later is `/archascode:wire persistence`.
+  on. **PRD mode omits `adapters` and `environments` entirely** — the
+  engine defaults every environment to memory, which is the fastest
+  path to a running app; a real backend and real auth are things this
+  first pass leaves for later. **Incremental mode may write the infra
+  stratum on explicit request** — see "Infra stratum: persistence and
+  auth" below for the shapes and write-time guidance. Once a real
+  backend is declared, **every entity persists there by default** — a
+  bare entity with no `persistence:` slot is a member. `persistence:
+  memory` on an entity is the opt-out, for read models and other
+  entities that should stay in memory; there is no per-entity
+  opt-**in** spelling, and an `entity.adapters.<backend>` block no
+  longer routes storage at all (it stays the config anchor for
+  `eject`/`locked`/hand-off identity, a concern this first pass
+  doesn't touch — see `/archascode:apply`).
+  - **Migrating an older spec**: a spec whose `schema_version` is not
+    `3.0` predates the flipped default — every entity on it was
+    memory-resident regardless of any declared backend. To bring it
+    forward without changing what's stored: add `persistence: memory`
+    to each entity that should stay in memory, rename each
+    environment's `compute:` key to `db_runtime:` (same values), then
+    set `schema_version: '3.0'` (quoted). Do this proactively in
+    incremental mode rather than waiting for `archascode validate` to
+    reject the old version.
 - **Entities**: `domain.entities.<PascalName>` with `description` and
   `attributes` (required key). Give every entity `id: {type: UUID}`
   plus `created_at`/`updated_at` as `{type: datetime, generated: true}`
@@ -166,14 +185,94 @@ anything this summary gets wrong.
   `api.disabled: [create]` on the root. Method bodies are
   `entity_method` hand-offs — `/archascode:apply` fills them; the spec
   carries only signatures and intent.
-- **API posture**: app-wide `api: {auth: {type: jwt, scheme: bearer}}`
-  when the PRD requires authentication (posture cascades to every
-  entity); per-entity override `entity.api.auth: required |
-  anonymous`; per-op suppression `entity.api.disabled: [<op>, ...]`
-  (bare CRUD op names + `rel-<relName>`; invalid names fail the render
-  with the induced set). Posture is the contract; *adapter*
-  selection (jwt_bearer key config, claims mapping) is a deployment
-  concern that stays out of the first pass — note it in the report.
+- **API posture**: app-wide `api: {auth: {type: jwt}}` (or `{type:
+  api_key}`) when the PRD requires authentication (posture cascades to
+  every entity); **never write `scheme`** — it defaults to `bearer` at
+  plan time, and an explicit non-bearer value fails the render. See
+  "Infra stratum: persistence and auth" below for the full pair-write
+  shape, the posture-flip consequence, and per-env opt-outs.
+  Per-entity override `entity.api.auth: required | anonymous`; per-op
+  suppression `entity.api.disabled: [<op>, ...]` (bare CRUD op names +
+  `rel-<relName>`; invalid names fail the render with the induced
+  set).
+- **Infra stratum: persistence and auth** — PRD mode never writes this
+  (the fast path above); incremental mode writes it **only on explicit
+  user request** ("wire up postgres", "add jwt auth", "use sqlserver
+  for this"). Both slots use the same authoring shapes the plugin's
+  Adapter rail writes.
+  - **Persistence declaration**: `adapters.persistence.<backend>.env`
+    names the environment variable(s) the generated app reads its
+    connection config from. `sqlserver` takes the four-key discrete
+    form:
+    ```yaml
+    adapters:
+      persistence:
+        sqlserver:
+          env: { host: DB_HOST, database: DB_NAME, username: DB_USER, password: DB_PASSWORD }
+    ```
+    `postgres` takes the single `DATABASE_URL`-shaped key:
+    ```yaml
+    adapters:
+      persistence:
+        postgres:
+          env: { url: DATABASE_URL }
+    ```
+    A spec declares **at most one** SQL backend. Once declared, every
+    entity persists there by default; pin `persistence: memory` on an
+    entity to opt it out (see the Top level bullet above — this
+    section doesn't repeat that mechanic, only the declaration that
+    triggers it).
+  - **Environment picks**: `environments.<env>.adapters.persistence`
+    and `.auth` override what that environment resolves to — the
+    declared backend/adapter id, or `memory`/`noop` to opt that
+    environment out without touching the declaration:
+    ```yaml
+    environments:
+      staging: { adapters: { persistence: memory } }
+    ```
+    Omit the slot entirely to inherit the declared pick; write it only
+    to diverge.
+  - **Auth pair — fail-closed shape, never `scheme`**: declare both
+    halves together, `adapters.auth.id` and `api.auth.type`, with the
+    same value on both:
+    ```yaml
+    adapters:
+      auth:
+        id: jwt_bearer   # or: api_key
+    api:
+      auth:
+        type: jwt        # or: api_key — matches adapters.auth.id
+    ```
+    Writing `api.auth.type` **flips the app-wide posture default to
+    `required`** — every endpoint without an explicit
+    `entity.api.auth: anonymous` now requires auth. Two corollaries to
+    state alongside the write: an environment whose auth resolves to
+    `noop` (via an env-level opt-out) still serves every route
+    anonymously regardless of the app-wide posture; and a declared
+    `ui:` static mount is outside the posture entirely — it is never
+    gated by `api.auth`. Per-environment opt-out mirrors the
+    persistence one: `environments.<env>.adapters.auth: noop`.
+  - **Removal**: dropping auth is a **consequence-naming
+    confirmation** before the edit — state plainly that every endpoint
+    without an explicit `anonymous` override will stop requiring auth.
+    Delete only the pair (`api.auth` and `adapters.auth`); leave any
+    per-env `noop` opt-outs and any live `.env.<env>` values in place —
+    they are inert and reversible, not cleaned up.
+  - **After any infra write, print the completion chain** — these are
+    prints only; this skill never runs the named commands (family
+    rule, above):
+    - **Auth pair written (either mode)**: `/archascode:apply` (render
+      first — the `auth` skill's gate reads
+      `.archascode/environments.json`, which only a real render
+      produces or updates) → `/archascode:auth` (Clerk reconcile for
+      jwt, local key seed for api_key) → `/archascode:deploy`
+      (platform seeding).
+    - **Persistence declaration written**: `/archascode:init` (the
+      adapter set changed — new driver dependencies) →
+      `/archascode:apply` → `/archascode:db` / `/archascode:deploy`.
+      One-line caveat: on a `protected` environment, cut the pending
+      schema change with `/archascode:cut-schema-migration` before
+      running `db apply`.
 - **Custom use cases / ports** (when Step 3 justified one) — the
   fiddliest corner of the language; read the schema (see below) before
   drafting one. Port and use-case names are **PascalCase**
@@ -244,13 +343,13 @@ Shape sketch (abbreviated — real drafts carry descriptions on every
 node; see `${CLAUDE_PLUGIN_ROOT}/examples/` for full worked specs):
 
 ```yaml
-schema_version: "1.0"
+schema_version: "3.0"
 metadata:
   name: field-service-tracker
   version: "0.1.0"
   description: First-pass spec drafted from docs/prd.md by /archascode:analyze
 api:
-  auth: { type: jwt, scheme: bearer }
+  auth: { type: jwt }
   # Optional: re-root every generated route under a common prefix. Use it when
   # the app also serves a same-origin UI and you want a collision-free
   # API namespace. Grammar: the empty string (no prefix, the default) or a
@@ -434,8 +533,9 @@ to its default and is recorded as an assumption in `analysis.md`,
 worded so the user can override by hand:
 
 - **Auth posture** — infer from the PRD's own language; if genuinely
-  silent, default to auth **on** (`api.auth: {type: jwt, scheme:
-  bearer}`) — safer to narrow from than to widen from.
+  silent, default to auth **on** (`api.auth: {type: jwt}`, paired with
+  `adapters.auth: {id: jwt_bearer}` — see "Infra stratum" above; never
+  `scheme`) — safer to narrow from than to widen from.
 - **Out-of-scope sections** — map the whole PRD; do not guess a section
   out of scope on your own judgment.
 - **Exclusive-arc / "belongs to exactly one of" relationships** — model
@@ -499,8 +599,9 @@ doubt it goes in the report as a *candidate*, not in the spec.
 reset), role-based permission matrices, audit history, soft-delete
 semantics, import/export UX, dashboards beyond a data read, NFRs,
 browser/deployment requirements. Sort these as you go — `deferred` when
-something downstream resolves it (a hand-off body, adapter config,
-`/archascode:wire`), `out of scope` when the PRD itself declared it a
+something downstream resolves it (a hand-off body, adapter config, an
+infra-stratum declaration — see "Infra stratum" above, or the
+plugin's Adapter rail), `out of scope` when the PRD itself declared it a
 non-goal. Defensible approximations are allowed — e.g. a polymorphic
 "linked to X or Y or Z" becomes N optional `many-to-one` relationships —
 but every approximation is recorded as an `assumption`.
@@ -570,7 +671,7 @@ Source: <prd-path> · Drafted: <date> · By: /archascode:analyze
 ## Deferred
 | Requirement | Resolved by |
 |---|---|
-| <requirement> | <hand-off body, adapter config, `/archascode:wire`, app code> |
+| <requirement> | <hand-off body, adapter config, an infra-stratum declaration, app code> |
 
 ## PRD open questions (carried forward)
 | # | Question | This draft |
@@ -579,7 +680,7 @@ Source: <prd-path> · Drafted: <date> · By: /archascode:analyze
 
 ## Next steps
 /archascode:init → /archascode:apply (N pending hand-offs) → /archascode:seed → API Explorer
-Persistence: memory (by omission) — run /archascode:wire persistence when ready for a real database.
+Persistence: memory (by omission) — declare a real backend here (incremental mode) or from the plugin's Adapter rail when ready for a real database.
 ```
 
 **Disposition is one of exactly four values**, each pointing at one
@@ -710,7 +811,7 @@ argue.
 ✓ spec/architecture.yml — E entities, R relationships, N enums, V value objects, M methods (validated in K pass(es))
 ✓ spec/analysis.md — X requirements: M mapped, Y assumptions, Z deferred, S out of scope (A load-bearing forks resolved by default — see Assumptions)
 Next: /archascode:init, then /archascode:apply (P hand-offs pending)
-Persistence: memory (by omission) — /archascode:wire persistence when ready
+Persistence: memory (by omission) — declare it here (incremental mode) or from the plugin's Adapter rail when ready
 ```
 
 Omit the parenthetical fork count when `--interactive` was set (forks
@@ -724,12 +825,6 @@ were asked, not defaulted).
   `/archascode:apply`.
 - **Run `/archascode:init` or `/archascode:apply`.** Explicit invocation only —
   family rule.
-- **Draft `adapters` / `port_bindings` / `environments`.** The first
-  pass is memory-bound by omission; persistence and deployment choices
-  belong to `/archascode:wire persistence`, invoked when the user is ready.
-- **Select an auth adapter.** The spec carries auth *posture*;
-  jwt_bearer selection, key config, and claims mapping are recorded in
-  the report as next steps.
 - **Critique an existing spec unprompted.** The no-arg "analyze the
   current architecture.yml for flaws" mode is a future version — a bare
   invocation with no argument and no modeling request stops rather than

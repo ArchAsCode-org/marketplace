@@ -40,9 +40,9 @@ What this skill installs:
 - **`adapters.persistence.sqlserver` present:** add `pymssql>=2.3.0`.
 - **`adapters.persistence.postgres` present:** add `psycopg[binary]>=3.2`.
 - **`jwt_bearer` auth adapter selected anywhere:** add `pyjwt[crypto]>=2.8`.
-  "Selected anywhere" means `adapters.auth.id == "jwt_bearer"` OR any
-  `port_bindings.<lens>.app_adapters.auth == "jwt_bearer"` — a binding
-  override is enough even when the spec-level default is `noop`. The
+  "Selected anywhere" means `adapters.auth.id == "jwt_bearer"` — the
+  declared adapter is what environments pick from (an environment can
+  only opt *out* to `noop`, never opt into a different adapter). The
   rendered `jwt_bearer` adapter imports PyJWT.
 
 That's the full mapping today. Future adapters extend the table; the rule
@@ -174,21 +174,17 @@ if os.path.exists("spec/architecture.yml"):
     has_sqlserver = "sqlserver" in adapters
     has_postgres = "postgres" in adapters
 
-    # jwt_bearer can be the spec-level default auth adapter OR an override
-    # in any binding's app_adapters.auth (the binding override wins even
-    # when adapters.auth.id is noop). Either selection pulls in PyJWT.
+    # jwt_bearer is selected iff it's the spec-level declared auth adapter
+    # (adapters.auth.id) — environments can only opt out to noop, never
+    # opt into a different adapter, so the declaration is the whole story.
     auth_default = ((spec.get("adapters") or {}).get("auth") or {}).get("id")
-    binding_auths = [
-        ((b or {}).get("app_adapters") or {}).get("auth")
-        for b in ((spec.get("port_bindings") or {}).values())
-    ]
-    has_jwt_bearer = "jwt_bearer" in ([auth_default] + binding_auths)
+    has_jwt_bearer = auth_default == "jwt_bearer"
 
     # Scaffold a minimal 'dev' environment when the spec
     # declares none, via the same round-trip object — comments, key order,
     # and formatting elsewhere in the file are preserved by ruamel's dumper.
     if not spec.get("environments"):
-        spec["environments"] = {"dev": {"port_binding": "memory"}}
+        spec["environments"] = {"dev": {"adapters": {"persistence": "memory"}}}
         spec["default_environment"] = "dev"
         try:
             with open("spec/architecture.yml", "w") as f:

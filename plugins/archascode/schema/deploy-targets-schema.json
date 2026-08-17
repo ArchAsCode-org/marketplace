@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Deploy targets",
+  "description": "Per-environment instance targets and channel grants for the deploy-layer skills. Identity only: what concrete thing fulfills each adapter slot, and what the tooling may do about it. Never runtime values or secrets.",
+  "type": "object",
+  "required": ["schemaVersion", "environments"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "description": "Format version of this file. Exactly one supported value.",
+      "const": 1
+    },
+    "environments": {
+      "description": "Map of environment name to its target rows.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/environmentEntry" }
+    }
+  },
+  "definitions": {
+    "environmentEntry": {
+      "description": "One environment's targets, keyed by adapter-type slot.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hosting": { "$ref": "#/definitions/targetRow" },
+        "persistence": { "$ref": "#/definitions/targetRow" },
+        "auth": { "$ref": "#/definitions/targetRow" }
+      }
+    },
+    "targetRow": {
+      "description": "One target: the concrete instance an environment's slot points at, plus the channel grants a skill may exercise against it.",
+      "type": "object",
+      "required": ["provider"],
+      "properties": {
+        "provider": {
+          "description": "The kind of instance this row identifies.",
+          "enum": ["railway", "clerk", "generic", "local", "docker"]
+        }
+      },
+      "if": { "properties": { "provider": { "const": "railway" } } },
+      "then": {
+        "additionalProperties": false,
+        "properties": {
+          "provider": { "const": "railway" },
+          "project": {
+            "description": "Declared identity: the Railway project name. Verified, never rewritten.",
+            "type": "string"
+          },
+          "environment": {
+            "description": "Declared identity: the Railway environment name. Verified, never rewritten.",
+            "type": "string"
+          },
+          "service": {
+            "description": "Adopted identity: the Railway service name, recorded from platform output.",
+            "type": "string"
+          },
+          "reconcile": {
+            "description": "May skills propose writes through Railway's control plane?",
+            "type": "boolean"
+          },
+          "verify": {
+            "description": "May skills probe this instance's data plane?",
+            "type": "boolean"
+          }
+        }
+      },
+      "else": {
+        "if": { "properties": { "provider": { "const": "clerk" } } },
+        "then": {
+          "additionalProperties": false,
+          "required": ["provider", "instance"],
+          "properties": {
+            "provider": { "const": "clerk" },
+            "instance": {
+              "description": "Declared identity: the Clerk instance name (e.g. development, production). Verified, never rewritten.",
+              "type": "string"
+            },
+            "application": {
+              "description": "Adopted identity: the Clerk application id, recorded on first contact.",
+              "type": "string"
+            },
+            "reconcile": {
+              "description": "May skills propose writes through Clerk's control plane (the session claims merge)?",
+              "type": "boolean"
+            },
+            "verify": {
+              "description": "May skills probe this instance's data plane (JWKS fetch, token mint)?",
+              "type": "boolean"
+            }
+          }
+        },
+        "else": {
+          "if": { "properties": { "provider": { "const": "generic" } } },
+          "then": {
+            "additionalProperties": false,
+            "properties": {
+              "provider": { "const": "generic" },
+              "verify": {
+                "description": "May skills probe this instance's data plane (reachability only; there is no control plane to reconcile)?",
+                "type": "boolean"
+              }
+            }
+          },
+          "else": {
+            "additionalProperties": false,
+            "properties": {
+              "provider": { "enum": ["local", "docker"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}

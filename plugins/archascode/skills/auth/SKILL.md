@@ -1,7 +1,7 @@
 ---
 name: auth
-description: Identity-provider reconcile for a jwt-declared archascode project — an interview + plan/confirm/apply loop over the Clerk CLI that adopts or creates the Clerk application, converges session-token claims so the seeded claims mapper populates email/name/roles, derives and writes AUTH_JWKS_URL/AUTH_ISSUER into gitignored .env.<env> files, and proves the loop with a headlessly minted token. Clerk is the only v1 provider. Accepts a declared environment name as an argument to scope the run.
-allowed-tools: Bash(npx -y clerk@3 whoami:*), Bash(npx -y clerk@3 auth:*), Bash(npx -y clerk@3 api:*), Bash(npx -y clerk@3 env pull:*)
+description: Auth-value reconcile for a project declaring api.auth.type — writes the real values a declared auth mode needs into gitignored .env.<env> files and (for jwt) the identity provider itself. For jwt, an interview + plan/confirm/apply loop over the Clerk CLI that adopts or creates the Clerk application, converges session-token claims so the seeded claims mapper populates email/name/roles, derives and writes AUTH_JWKS_URL/AUTH_ISSUER, and proves the loop with a headlessly minted token (Clerk is the only v1 provider). For api_key, a local key seed — generate or adopt AUTH_API_KEY per environment, no provider involved. Accepts a declared environment name as an argument to scope the run.
+allowed-tools: Bash(npx -y clerk@3 whoami:*), Bash(npx -y clerk@3 auth:*), Bash(npx -y clerk@3 api:*), Bash(npx -y clerk@3 env pull:*), Bash(archascode targets:*)
 ---
 
 # /archascode:auth
@@ -69,6 +69,37 @@ instance) may still be needed by an out-of-scope environment mapped to
 the same instance — the plan still shows and confirms that shared line,
 naming every mapped environment on it, in-scope or not (single-homed
 under Procedure, below).
+
+### Coherence and mixed `spec/deploy_targets.yml` targets
+
+**No fact in `spec/deploy_targets.yml` is auto-repaired or
+auto-deleted.** An orphaned or incoherent `auth:` target — the spec's
+environment was renamed or deleted, or the environment's resolved
+auth adapter flipped away from `jwt_bearer` (to `noop` or, per The
+api_key arm above, to `api_key`) while a `provider: clerk` row still
+names it — is detected by `archascode targets check --json` at plan
+time, reported as fact with the file-edit offer that would fix it, and
+the affected environment **parks as `blocked (targets)`** (the
+`blocked (branch)` mechanics: named, reported, picked up automatically
+once the row is fixed and the skill re-run). A renamed environment
+presents as an orphaned row plus a new undescribed one — offered as a
+single carry-the-row-over confirmation, not two separate edits.
+
+**`provider: generic` auth targets never enter the Clerk lane.** A
+`generic` row means bring-your-own-provider — this skill's discovery,
+instance mapping, claims ownership, and smoke leg are all Clerk-CLI
+mechanics and simply do not apply. A `generic`-targeted environment
+informs `/archascode:deploy`'s `AUTH_*` value-source parking and gets,
+at most, a reachability verification; it is otherwise invisible to
+everything above.
+
+**Under mixed targets** (some environments `provider: clerk`, some
+`provider: generic`, some undescribed), this skill's Clerk lane — workspace discovery, the
+one-application fence, claims convergence, the smoke leg — scopes to
+exactly two groups: environments with a `provider: clerk` target, and
+target-absent in-scope environments still entering enrollment (Desired
+state and provenance, item 2). Every `generic`-targeted environment
+sits outside both groups.
 
 ## Permission posture
 
@@ -216,69 +247,201 @@ Checked in order; each is a stop-and-explain, never a stack trace.
    environments-file rule restated: absence means "never rendered or cleaned."
    `schemaVersion != 1` → the same stop, fatal — never resolve against
    a stale table.
-2. **The spec declares a jwt need.** `api.auth.type: jwt` must be set
-   somewhere the resolved binding can see it. This gate deliberately
-   does **not** require a top-level `adapters.auth` block — a
-   binding-level `app_adapters.auth: jwt_bearer` selection alone is
+2. **Mode dispatch on the spec's declared `api.auth.type`.** This gate
+   deliberately does **not** require a top-level `adapters.auth`
+   block — a binding-level `app_adapters.auth` selection alone is
    render-legal and must pass. On failure the message derives from
    what is actually missing:
-   - **No `type: jwt` anywhere** → name the posture keys
-     (`api.auth.type`, `api.auth.scheme`) and the editing lanes:
-     `/archascode:analyze`, or a hand edit of `spec/architecture.yml`.
-     Note the planned `wire auth` mode as the future blessed entry —
-     a pointer, not a dependency, since it has not landed.
-   - **`type: jwt` present but zero environments resolve to
-     `jwt_bearer`** → list each declared environment's resolved
-     `appAdapters.auth.id` so the user sees *why* nothing is in scope.
+   - **`jwt`** → the Clerk provider lane (below): in scope iff the
+     resolved binding can see it and at least one environment resolves
+     `jwt_bearer` (item 2a).
+   - **`api_key`** → the local key-seed arm (below): in scope iff the
+     resolved binding can see it and at least one environment resolves
+     `api_key` (item 2b).
+   - **No `api.auth.type` anywhere** → name the posture keys
+     (`api.auth.type`) and the editing lanes: `/archascode:analyze`,
+     the plugin's Adapter rail, or a hand edit of
+     `spec/architecture.yml`.
+   - **Any other `api.auth.type` value** → the same not-applicable
+     stop, naming the value found.
+   2a. **`type: jwt` present but zero environments resolve to
+       `jwt_bearer`** → list each declared environment's resolved
+       `appAdapters.auth.id` so the user sees *why* nothing is in
+       scope.
+   2b. **`type: api_key` present but zero environments resolve to
+       `api_key`** (every mapped environment is `noop`) → the same
+       resolved-adapter listing, naming the fix: pick a
+       `noop`-mapped environment back onto `api_key`, or there is
+       nothing this run can seed.
 3. **Degenerate scopes are first-class outcomes, never silent no-ops:**
    - Empty `environments` table → "no environments declared" —
      render seeds one, or declare them (`/archascode:deploy`'s arm).
    - A gate-passing spec with **zero** in-scope environments → the
-     same resolved-adapter listing as item 2's second bullet.
+     same resolved-adapter listing as item 2a/2b.
    - A scoped run naming a declared but out-of-scope (e.g. noop-bound)
      environment → the same explanation, scoped to it.
-4. **`api_key` mode is out of scope by construction.** It has no
-   provider — nothing external to reconcile (the engine owns the
-   adapter; completing its wiring is a future decision, not this
-   skill's job).
-5. **Authenticated.** `npx -y clerk@3 whoami` succeeds. If not, run
+4. **Authenticated (jwt mode only).** `npx -y clerk@3 whoami` succeeds. If not, run
    `npx -y clerk@3 auth login` **in the background** (the
    `/archascode:login` pattern: the activation URL prints as soon as
    the flow starts), relay the activation URL to the user the moment
    it appears, poll until the background task exits, then re-check.
 
+## The api_key arm
+
+This arm runs instead of everything from "Desired state and
+provenance" through "Smoke" below — those sections are the jwt/Clerk
+lane. There is no provider to reconcile for `api_key`: the engine owns
+the adapter, and this arm's whole job is a local secret seed, per
+in-scope environment.
+
+For each in-scope environment (Preconditions item 2b already narrowed
+the set):
+
+1. **Read the gitignored `.env.<env>`.**
+   - **`AUTH_API_KEY` present** → adopt it: report it, never
+     overwrite it, never echo the value.
+   - **Absent** → generate one. `openssl rand -hex 32` — boring,
+     256-bit, paste-safe. Generation and the local write are **one
+     compound command** piping `AUTH_API_KEY=<value>` **directly into
+     `.env.<env>`** — the value never enters the transcript. Guard the
+     write with `git check-ignore -q .env.<env>` first: **not
+     ignored** → stop the write for that environment, point at
+     `/archascode:init`'s gitignore step, and report it rather than
+     writing an unprotected secret.
+   - Values are **per-environment distinct** — a fresh generation for
+     each absent environment, never copied from another environment's
+     value.
+2. **No interview questions beyond the existing confirm posture** —
+   there is no real choice to ask about (adopt-if-present,
+   generate-if-absent is the whole rule), so this arm asks nothing new.
+3. **No smoke leg.** The 401/401/200 matrix already exists on the
+   platform side (`/archascode:deploy`'s Deployed auth posture
+   section); a local variant is a possible future addition, not built
+   here.
+4. **No grant changes.** `openssl` and `git check-ignore` run
+   ungranted here and may prompt or be classifier-judged — accepted
+   friction for this arm; a permission prompt is not a typed reply, so
+   the Clerk grant above is unaffected either way.
+5. **Orphaned Clerk target check.** `api_key` mode has no provider
+   instance — **no `auth:` row in `spec/deploy_targets.yml` exists for
+   it, ever**, and this arm never writes one. If the file still
+   carries a `provider: clerk` `auth:` target for this environment (a
+   mode switch away from `jwt` orphaned it), report it as fact —
+   "this environment's `auth:` target names a Clerk instance, but it
+   now resolves `api_key`" — and offer the file edit that would
+   remove the stale row. Never auto-delete it; a report with an offer
+   is the whole obligation.
+
+### api_key report
+
+One table, one row per in-scope environment:
+
+| env | AUTH_API_KEY | .env |
+|-----|--------------|------|
+
+- **AUTH_API_KEY** — state only, never the value: `adopted` (found,
+  left as-is) / `generated` (written this run) / `skipped` (the
+  gitignore stop above).
+- **.env** — `present` / `written` / `not gitignored`.
+
+Below the table, the deploy pointer: seeding the platform's copy of
+`AUTH_API_KEY` is `/archascode:deploy`'s job (its Deployed auth
+posture section), not this skill's.
+
 ## Desired state and provenance
 
-**Platform-is-the-record.** There is no provider state file, no spec
-field (`spec/architecture.yml` never grows a `provider:` key — the
-adapter-versus-provider fence is load-bearing: `jwt_bearer` names an
-adapter, not Clerk), and no tracked local record of any kind. The only
-local pointer — because it already has to exist for the rendered app
-to run — is the `AUTH_ISSUER=` line already present in each
-`.env.<env>`.
+**`spec/deploy_targets.yml` is the declared-intent record** — per
+environment, an `auth:` target names the mapped Clerk instance (and,
+once adopted, the application) plus the `reconcile`/`verify` grants
+this skill runs under. **The platform remains the record of
+actuals** — Clerk's own application/instance/claims state is never
+reconciled *toward* the file; skew between the two is reported and
+converged only under the existing confirm discipline. `.env.<env>`'s
+`AUTH_ISSUER` line survives unchanged as the **runtime carrier** —
+the value the rendered app actually reads — but it is no longer the
+record: with a declared target in play it becomes the thing being
+*verified* against declared intent, not the source of it (see The
+application resolution ladder, below). The spec itself still never
+grows a `provider:` key — the adapter-versus-provider fence stays
+load-bearing: `jwt_bearer` names an adapter, not Clerk.
+
+**Targets-file tolerance** (the same four-arm shape `/archascode:deploy`
+uses): file **absent** → legal — the ladder below runs exactly as it
+did before this file existed, and an in-scope environment reaching
+enrollment writes the target back (item 2, below). `schemaVersion: 1`
+→ proceed. `schemaVersion` **absent, malformed, or any other value**
+→ **stop**, naming `spec/deploy_targets.yml` and the expected version
+(`1`) — never resolve against a stale or unreadable file. Unparseable
+YAML → the same stop.
 
 ### The application resolution ladder (run at plan time)
 
-1. **Adopt-from-values.** Read `AUTH_ISSUER` from every in-scope
-   `.env.<env>` present locally; derive each instance domain from it;
-   match against the workspace inventory
-   (`npx -y clerk@3 api --platform /platform/applications`, which
-   returns applications and their instances including publishable
-   keys — publishable keys decode to instance domains, so discovery
-   needs no prior knowledge). A match **adopts the application
-   silently** — no existence question.
-2. **No values found anywhere** → `AskUserQuestion` listing the
-   workspace's applications, a project-directory name match
-   preselected as the suggestion, plus a create-new option. The
-   creation verb rides the same Platform API; its exact spelling is
-   verified against the installed CLI at run time (its precise form is
-   unspiked and is audited on first live use — the
-   `/archascode:deploy` verb-spelling-hedge pattern: never guess at a
-   replacement spelling if the installed CLI's `--help` doesn't show
-   it, degrade to a reported manual dashboard step instead).
-3. **Conflicting derivations** — two in-scope environments' values
-   pointing at different applications → report the conflict as fact
-   and stop-and-ask.
+This environment's row in `spec/deploy_targets.yml`, if any, decides
+which of two shapes this ladder takes:
+
+1. **Target exists.** Adopt-from-values (the old step below) is
+   **dead for resolution here** — it would be circular: the `.env`
+   issuer is the pointer this run is about to *verify*, and it must
+   never be allowed to select the application that defines
+   "expected."
+   - **`application` present on the target** → the ladder is skipped
+     entirely; a workspace fetch confirms the named application still
+     exists (a miss is reported as fact, stop-and-ask).
+   - **`application` absent** → resolve via the workspace inventory
+     plus name-match/interview (the same discovery this skill always
+     ran when no target existed — `npx -y clerk@3 api --platform
+     /platform/applications`, a project-directory name match
+     preselected, plus a create-new option), **never** the `.env`
+     values. The resolved application id then **rides a confirmed
+     plan line** — "record application `acct_…` for `<env>`" — as a
+     first-value fill on the target row; from that point on it arms
+     the wrong-application drift check on every later run.
+   - Either way, the run then derives the expected issuer for the
+     **declared** instance of the **resolved** application and
+     compares it against `.env`'s live `AUTH_ISSUER` — a genuine
+     three-way intent/pointer/actuals check, with no path back to
+     self-validation. A mismatch is the standard skew report;
+     converging it (rewriting `.env`) rides its own confirmed plan
+     line, same as any other owned-vocabulary skew.
+2. **Target absent, environment in scope.** The ladder runs exactly as
+   it always has:
+   1. **Adopt-from-values.** Read `AUTH_ISSUER` from every in-scope
+      `.env.<env>` present locally; derive each instance domain from
+      it; match against the workspace inventory (`npx -y clerk@3 api
+      --platform /platform/applications`, which returns applications
+      and their instances including publishable keys — publishable
+      keys decode to instance domains, so discovery needs no prior
+      knowledge). A match **adopts the application silently** — no
+      existence question.
+   2. **No values found anywhere** → `AskUserQuestion` listing the
+      workspace's applications, a project-directory name match
+      preselected as the suggestion, plus a create-new option. The
+      creation verb rides the same Platform API; its exact spelling
+      is verified against the installed CLI at run time (its precise
+      form is unspiked and is audited on first live use — the
+      `/archascode:deploy` verb-spelling-hedge pattern: never guess
+      at a replacement spelling if the installed CLI's `--help`
+      doesn't show it, degrade to a reported manual dashboard step
+      instead).
+   3. **Conflicting derivations** — two in-scope environments' values
+      pointing at different applications → report the conflict as
+      fact and stop-and-ask.
+
+   The instance-mapping interview (below) then runs its ask-once
+   question, and the answer — instance, application once adopted, and
+   the consent just given — is **written back** as this environment's
+   `auth:` target row with one `archascode targets set` invocation:
+   ```bash
+   archascode targets set <env> auth provider=clerk instance=<instance> [application=<application>] reconcile=true verify=true
+   ```
+   (including for Production-mapped targets — see Grants, below): this
+   skill is a legitimate first creator of `spec/deploy_targets.yml` —
+   the verb creates the file lazily on first write, no `init` scaffold
+   needed. The row's one required identity key is `instance:`; naming
+   `application=` fills it on first contact per item 1 above, and the
+   verb enforces the row shape and the write discipline (declared keys
+   verified not rewritten, adopted keys filled without touching grants,
+   same-value invocations inert).
 
 **v1 fence: one Clerk application per project.** A second-application
 QA-isolation shape is a named deferral (Notes, below) — this skill
@@ -288,9 +451,23 @@ never proposes it.
 
 A Clerk application has exactly **two instances** — Development and
 Production. The mapping from N declared environments onto them is
-interview-owned, asked **once per environment** at first mapping via
-`AskUserQuestion` (the `/archascode:deploy` branch-mapping ask-once
-precedent):
+owned by whichever source applies per environment:
+
+- **Target exists** → the instance question **disappears** — the
+  target row's `instance:` key answers it directly, and every run
+  simply verifies the derived issuer against `.env` (Desired state
+  and provenance, item 1, above). What used to be "adopted thereafter
+  via issuer, suspicious mismatch flagged report-only" **inverts into
+  the same three-way verification**: a mismatch between the target's
+  declared instance and what `.env` actually resolves to is reported
+  as the standard skew, not a special suspicious-mismatch flag.
+- **Target absent** → the interview below runs, once per environment,
+  and its answer is **written back** as the target row (Desired state
+  and provenance, item 2).
+
+The interview itself, asked **once per environment** at first mapping
+via `AskUserQuestion` (the `/archascode:deploy` branch-mapping
+ask-once precedent):
 
 - **Development is preselected** for every environment except one
   whose *name* is exactly `prod` or `production`, where Production is
@@ -298,18 +475,11 @@ precedent):
   `data` axis is deliberately **not** used as a signal (a `qa`
   environment is routinely `protected`; posture does not imply
   instance).
-- **Mapping provenance is the issuer value.** An environment whose
-  `.env.<env>` already carries an `AUTH_ISSUER` resolving to one of
-  the adopted application's instances is mapped **by adoption** — no
-  question asked. Only unmapped environments get the interview
-  question.
-- **Every adopted mapping is a plan-screen fact**, shown, never
-  re-asked. A **suspicious mismatch** — an environment named
-  `dev`/`qa` adopted onto Production, or `prod` onto Development — is
-  flagged on that fact line as suspicious-but-adopted, **report-only**:
-  adoption still stands (a stale hand-copied `.env` is exactly how a
-  wrong-instance mapping arises, and the flag is how the user
-  notices). Changing a mapping is only ever an explicit user request.
+- **Every mapping — adopted-by-target or freshly interviewed — is a
+  plan-screen fact**, shown, never re-asked while the target stands.
+  Changing a mapping is only ever an explicit user request, now
+  expressed as either a `spec/deploy_targets.yml` edit or a confirmed
+  row update this skill proposes.
 - **Multiple environments per instance is the expected shape** — `dev`
   and `qa` both sharing Development's issuer is normal, and Development
   is where `+clerk_test` addresses and fixed-OTP test mode live.
@@ -328,6 +498,36 @@ handled asymmetrically:
   **attempts and degrades**: on failure it reports
   `configured (smoke unverified)` rather than blocking the run or
   flagging a warning. First live production use is the audit moment.
+
+### Grants
+
+Each target row's two boolean flags scope what this skill may do
+against that environment's Clerk instance:
+
+- **`reconcile`** gates **platform writes only** — the `session.claims`
+  merge below (claims config, the PATCH/read-back cycle). It never
+  gates the local `.env.<env>` seam: those writes (the derived
+  `AUTH_JWKS_URL`/`AUTH_ISSUER` pair, the `# CLERK_SECRET_KEY=` seed
+  line) are check-ignore-guarded exactly as today and are **never
+  grant-gated** — they are the runtime carrier, not a platform action.
+- **`verify`** gates the probe family — the JWKS/issuer confirmation
+  fetch and the smoke leg. Both run on any in-use instance regardless
+  of Development/Production; the Production mint leg's structural
+  degrade (`configured (smoke unverified)`, above) is an *annotation
+  within* a granted probe, never the spelling of `verify: false` — a
+  user who wants quiet from a structurally-degraded leg sets the flag
+  themselves, this skill never writes it for that reason.
+- Enrollment (Desired state and provenance, item 2) writes both flags
+  `true` for the target it creates, Production-mapped targets
+  included — the consent just given, recorded plainly.
+- **File writes ride the `archascode targets set` verb**, which
+  enforces the same discipline as every other write this skill makes.
+  Every write to `spec/deploy_targets.yml` is either same-value-inert
+  (an adopted key matching what's already on disk) or confirmed (a
+  first-value fill, an update, or a fresh row) — declared keys
+  (`instance:`) are verified, never rewritten; adopted keys
+  (`application:`) fill and update only via the verb's own kind;
+  grants are consent and only ever ride a confirmation.
 
 ## Owned vocabulary — claims
 
@@ -608,7 +808,8 @@ here, pointed to from Run scope and elsewhere:
 
 ## Final report
 
-One table, one row per in-scope environment:
+This is the jwt-mode report (the api_key arm's own report is above,
+"api_key report"). One table, one row per in-scope environment:
 
 | env | instance | claims | .env | smoke |
 |-----|----------|--------|------|-------|
@@ -637,12 +838,16 @@ Below the table:
 
 ## What this skill does NOT do
 
-- **Write any tracked repo file** — sole licensed exception: the
+- **Write any tracked repo file** — two licensed exceptions: the
   settings-rule project-tracked write (Permission posture), only under
-  the user's explicit choice on that `AskUserQuestion`, and it never
-  commits the write.
-- **Write or edit the spec** — the wire-first gate parks and points at
-  editing lanes instead of writing `spec/architecture.yml` itself.
+  the user's explicit choice on that `AskUserQuestion`, never
+  committed; and confirmed writes to `spec/deploy_targets.yml`
+  (Desired state and provenance / Grants) — enrollment write-back and
+  adopted-key fills only, always via the ordinary editing tools
+  (Write/Edit), never bash, and always either same-value-inert or
+  riding a confirmed plan line.
+- **Write or edit the spec** — the mode-dispatch gate parks and points
+  at editing lanes instead of writing `spec/architecture.yml` itself.
 - **Write any `session.claims` key outside the owned three**, or
   rewrite a hand-managed value — a "fix it" request on a collision is
   a stop-and-explain.
@@ -651,7 +856,14 @@ Below the table:
   into the transcript, not into the final report — **sole exception:
   the fetch lane's scratch file** (The smoke leg) — outside the repo,
   spliced from, deleted in the same confirmed action.
-- **Propose an instance-mapping change unprompted.**
+- **Propose an instance-mapping change unprompted** — a target's
+  `instance:` is verified, never rewritten, without an explicit user
+  request.
+- **Auto-repair or auto-delete a `spec/deploy_targets.yml` row** —
+  every orphan/incoherence is reported with a file-edit offer only
+  (Run scope's Coherence and mixed targets).
+- **Write an `auth:` target row for `api_key` mode** — api_key has no
+  provider instance; that arm seeds `.env` only (The api_key arm).
 - **Drive DNS** — Production domain setup is dashboard-referenced.
 - **Write Railway variables** — that is `/archascode:deploy`'s job
   (its Deployed auth posture section); this skill never
@@ -667,12 +879,13 @@ Below the table:
 |---|---|
 | No `.archascode/environments.json` | Stop: "render first" (`/archascode:apply`). |
 | `environments.json` `schemaVersion != 1` | Stop: "render first" — fatal, never resolved against a stale table. |
-| Spec has no `api.auth.type: jwt` | Stop: name the posture keys and the editing lanes (`/archascode:analyze`, hand edit); note the future `wire auth` mode. |
+| Spec has no `api.auth.type` (or an unrecognized value) | Stop: name the posture keys and the editing lanes (`/archascode:analyze`, the plugin's Adapter rail, hand edit). |
 | `type: jwt` present but nothing resolves to `jwt_bearer` | Stop: list each environment's resolved auth adapter id. |
+| `type: api_key` present but nothing resolves to `api_key` | Stop: list each environment's resolved auth adapter id; the fix is picking a `noop`-mapped environment back onto `api_key`. |
 | Empty `environments` table | Stop: "no environments declared." |
 | Scoped run names an out-of-scope environment | Stop: the same resolved-adapter explanation, scoped to it. |
 | Unknown single-token `$ARGUMENTS` | `AskUserQuestion`: near-match, treat-as-steering, or cancel. |
-| `api_key`-only project | Stop: no provider to reconcile; the engine owns the adapter. |
+| `api_key` mode, this environment's key already present locally | Adopt and report it; never overwritten, never echoed. |
 | Not authenticated with Clerk | Background `npx -y clerk@3 auth login`, relay the URL, re-check on completion. |
 | Conflicting `AUTH_ISSUER` derivations across environments | Report the conflict as fact; stop-and-ask. |
 | Hand-managed claims collision + a "fix" request | Stop-and-explain; never rewritten. |
@@ -686,6 +899,9 @@ Below the table:
 | No-token app-tier probe returns 200 | Diagnose as a likely older-engine fail-open; name the re-render fix. |
 | Permission denial (classifier or declined prompt) | Stop that action; offer the `!`-prefixed one-liner and the settings-rule route; park dependents `blocked (permissions)`. |
 | `.env.<env>` not gitignored | Stop the write; point at `/archascode:init`'s gitignore step. |
+| `archascode targets check`/`targets set` exits non-zero against `spec/deploy_targets.yml` | Stop, surfacing the verb's own message verbatim — it already names the file and the expected version; never resolve against a broken file. |
+| Target orphaned or incoherent (spec env renamed/deleted; auth flipped `noop`/`api_key` under a Clerk row) | Report as fact per `archascode targets check`'s finding, with a file-edit offer; never auto-repaired or auto-deleted; the environment parks `blocked (targets)`. |
+| `provider: clerk` auth target on an environment resolving `api_key` (The api_key arm) | Report the stale row; offer the file edit that removes it; never auto-deleted. |
 
 No retries beyond what is stated above. The user re-invokes after
 addressing whatever a stop pointed at.
@@ -694,10 +910,10 @@ addressing whatever a stop pointed at.
 
 - **Auth0 provider fork** — spike first (claims namespacing, headless
   mint path), then fork inside this skill's interview.
-- **The `wire auth` mode** — amends `/archascode:wire`'s
-  persistence-only fence; `api_key` completes there, `jwt` parks
-  pointing here until this skill's own park lands as the blessed
-  entry.
+- **An api_key local smoke leg** — the arm above is deliberately
+  seed-and-report only; a local 401/401/200 matrix mirroring the
+  platform-side one is a future addition if api_key usage grows enough
+  to justify it.
 - **The deploy-side amendment has landed** — `AUTH_*` Railway
   vocabulary, a `blocked (auth)` plan-time park, and a deployed auth
   smoke leg are now live in `/archascode:deploy`'s Deployed auth

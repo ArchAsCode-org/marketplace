@@ -28,9 +28,9 @@ From any Claude Code session, run these two commands **one at a time**:
 
 Choose **user scope** ("Install for you") when prompted.
 
-That installs the ten skills (`analyze`, `init`, `apply`, `seed`, `wire`,
-`clean`, `cut-schema-migration`, `db`, `login`, `logout`) and puts the
-`archascode` CLI on the Claude Code Bash tool's PATH.
+That installs the twelve skills (`analyze`, `init`, `apply`, `seed`,
+`clean`, `cut-schema-migration`, `db`, `deploy`, `login`, `logout`,
+`auth`, `ui`) and puts the `archascode` CLI on the Claude Code Bash tool's PATH.
 
 **Quit Claude Code and start it again before using any of them** — skills
 are loaded once, at session start, so they are not available in the
